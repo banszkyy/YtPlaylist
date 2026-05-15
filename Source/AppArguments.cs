@@ -12,4 +12,5 @@ sealed class AppArguments
     public required bool Metadata { get; init; }
     public required bool Lyrics { get; init; }
     public required string OutputPath { get; init; }
+    public required bool IgnoreMetaWarnings { get; init; }
 }

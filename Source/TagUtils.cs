@@ -4,7 +4,7 @@ namespace YtPlaylist;
 
 static class TagUtils
 {
-    public static async Task<bool> DownloadCoverImage(TagLib.File file, Uri url, string description, TagLib.PictureType type, CancellationToken cancellationToken)
+    public static async Task<bool> DownloadCoverImage(TagLib.File file, Uri url, string description, TagLib.PictureType type, Diff diff, CancellationToken cancellationToken)
     {
         byte[]? imageBytes = null;
         using (HttpClient client = new())
@@ -30,7 +30,7 @@ static class TagUtils
             Data = imageBytes,
             TextEncoding = TagLib.StringType.UTF16,
         };
-        file.Tag.Pictures = [cover];
+        file.Tag.Pictures = diff.Modify("Pictures", file.Tag.Pictures, [cover]);
         return true;
     }
 }

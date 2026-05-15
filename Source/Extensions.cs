@@ -33,4 +33,14 @@ static class Extensions
 
         return "\"" + s + "\"";
     }
+
+    public static IEnumerable<(T Value, bool IsFirst)> WithSeparators<T>(this IEnumerable<T> values)
+    {
+        bool isFirst = true;
+        foreach (T item in values)
+        {
+            yield return (item, isFirst);
+            isFirst = false;
+        }
+    }
 }

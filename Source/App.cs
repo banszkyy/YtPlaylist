@@ -72,22 +72,21 @@ sealed class App
 
                     if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
 
-                    if (!Arguments.UseCache)
-                    {
-                        localFiles.Clear();
-                        IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
-                        //if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
-                    }
-                    else if (!File.Exists(Path.Combine(outputPath, ".cache")))
-                    {
-                        localFiles.Clear();
-                        IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
-                        if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
-                    }
-                    else
-                    {
-                        ReadIndex(localFiles, outputPath, playlist);
-                    }
+                    //if (!Arguments.UseCache)
+                    //{
+                    IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
+                    //    if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
+                    //}
+                    //else if (!File.Exists(Path.Combine(outputPath, ".cache")))
+                    //{
+                    //    localFiles.Clear();
+                    //    IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
+                    //    if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
+                    //}
+                    //else
+                    //{
+                    //    ReadIndex(localFiles, outputPath, playlist);
+                    //}
 
                     playlistFiles.Add(playlist.Id.Value, localFiles);
 
@@ -111,21 +110,21 @@ sealed class App
             }
         }
 
-        if (!Arguments.DryRun && Arguments.UseCache)
-        {
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
-            {
-                foreach (Playlist playlist in playlists.WithProgress(progressBar))
-                {
-                    if (cancellationToken.IsCancellationRequested) return;
-
-                    string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
-                    List<MusicFile> localFiles = playlistFiles[playlist.Id.Value];
-
-                    WriteIndex(localFiles, outputPath);
-                }
-            }
-        }
+        //if (!Arguments.DryRun && Arguments.UseCache)
+        //{
+        //    using (ProgressBar progressBar = new() { MaxWidth = 40 })
+        //    {
+        //        foreach (Playlist playlist in playlists.WithProgress(progressBar))
+        //        {
+        //            if (cancellationToken.IsCancellationRequested) return;
+        //
+        //            string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
+        //            List<MusicFile> localFiles = playlistFiles[playlist.Id.Value];
+        //
+        //            WriteIndex(localFiles, outputPath);
+        //        }
+        //    }
+        //}
 
         {
             Dictionary<string, List<PlaylistVideo>> duplicates = [];
@@ -224,13 +223,13 @@ sealed class App
                     }
                 }
 
-                Log.MinorAction("Writing index files");
-                foreach (string playlistId in modifiedPlaylists)
-                {
-                    Playlist playlist = playlists.First(v => v.Id.Value == playlistId);
-                    string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
-                    if (!Arguments.DryRun) WriteIndex(playlistFiles[playlistId], outputPath);
-                }
+                //Log.MinorAction("Writing index files");
+                //foreach (string playlistId in modifiedPlaylists)
+                //{
+                //    Playlist playlist = playlists.First(v => v.Id.Value == playlistId);
+                //    string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
+                //    if (!Arguments.DryRun) WriteIndex(playlistFiles[playlistId], outputPath);
+                //}
             }
         }
 

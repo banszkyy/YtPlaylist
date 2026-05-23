@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using Logger;
 
 public class Diff
 {
@@ -98,42 +99,45 @@ public class Diff
 
     public void Print()
     {
-        foreach ((string key, Change change) in _changes)
+        using (Log.Auto())
         {
-            Console.Write("    ");
+            foreach ((string key, Change change) in _changes)
+            {
+                Console.Write("    ");
 
-            if (change.Old is null)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("+");
-                Console.ResetColor();
-                Console.Write(" ");
-                Console.Write(key);
-                Console.Write(" = ");
-                PrintValue(change.New!);
-            }
-            else if (change.New is null)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("-");
-                Console.ResetColor();
-                Console.Write(" ");
-                Console.Write(key);
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.Write("x");
-                Console.ResetColor();
-                Console.Write(" ");
-                Console.Write(key);
-                Console.Write(" ");
-                PrintValue(change.Old);
-                Console.Write(" -> ");
-                PrintValue(change.New);
-            }
+                if (change.Old is null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write("+");
+                    Console.ResetColor();
+                    Console.Write(" ");
+                    Console.Write(key);
+                    Console.Write(" = ");
+                    PrintValue(change.New!);
+                }
+                else if (change.New is null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write("-");
+                    Console.ResetColor();
+                    Console.Write(" ");
+                    Console.Write(key);
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.Write("x");
+                    Console.ResetColor();
+                    Console.Write(" ");
+                    Console.Write(key);
+                    Console.Write(" ");
+                    PrintValue(change.Old);
+                    Console.Write(" -> ");
+                    PrintValue(change.New);
+                }
 
-            Console.WriteLine();
+                Console.WriteLine();
+            }
         }
     }
 }

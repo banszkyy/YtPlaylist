@@ -1,18 +1,59 @@
 # YouTube Playlist Synchronizer
 
-[![.Net 10.0](https://img.shields.io/badge/10.0-606060?style=flat-square&logo=dotnet&labelColor=512BD4)](#)
+[![.Net 11.0](https://img.shields.io/badge/10.0-606060?style=flat-square&logo=dotnet&labelColor=512BD4)](#)
 
 Downloads and synchronizes YouTube playlists as MP3 files so you can listen to them offline!!!
 
 ## Build Dependencies
 
-- <https://github.com/BBpezsgo/MusicBrainz>
-- <https://github.com/BBpezsgo/Logger>
+- [BBpezsgo/MusicBrainz](https://github.com/BBpezsgo/MusicBrainz)
+- [BBpezsgo/Logger](https://github.com/BBpezsgo/Logger)
 
 ## Runtime Dependencies
 
 - `ffmpeg`
 - `yt-dlp`
+
+## Arguments
+
+- `-p|--playlist` - The YouTube playlist id to download
+- `-o|--output` - Output directory to sync the playlist to
+- `--nodownload` - Don't download any new YouTube music videos
+- `--nometadata` - Don't fetch song metadata
+- `--nolyrics` - Don't fetch song lyrics
+- `--httpcache` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube).
+- `--ignoremetawarnings` - Ignores all metadata warnings produced when it cannot parse the filename, or it cannot find the MusicBrainz record
+
+## Features
+
+### Synchronizing
+
+- Downloads all missing music files that are in your playlist
+- Deletes all music files that you deleted from the playlist
+- TODO: Move music files that you moved between your playlists
+
+> [!NOTE]
+> It will create subdirectories for each YouTube playlist.
+
+> [!TIP]
+> You can rename the MP3 files (together with the .lrc files), because the youtube video's id is embedded into the MP3 metadata.
+
+> [!TIP]
+> Until it doesn't find the MusicBrainz entry for the music, it tries to guess the artist and title from the MP3 file name.
+> Because of this, you might have to fix filenames. The best filename for a music is `Artist - Title.mp3`.
+
+### Metadata
+
+- First, it fetches the YouTube video's metadata and sets the MP3 file's title, artist and album cover metadata.
+- Second, it searches for the music *release* on [MusicBrainz](https://musicbrainz.org/), and sets all possible MP3 metadata tags possible.
+
+### Lyrics
+
+- It searches for the lyrics on [LrcLib](https://lrclib.net/), and embeds it into the MP3 metadata, and also into a .lrc file.
+
+### Duplicate detection
+
+- It warns you if you have the same music file in multiple different playlists. It lists you the playlists the music is in, and the music metadata. (i.e. `[Playlist1, Playlist2] Artist - Title`)
 
 ## Example Usage
 
@@ -24,27 +65,6 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 > <https://music.youtube.com/playlist?list=PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs>
 >
 > And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
-
-This will also fill the MP3 files' tags with cover art, album, artist and title from [MusicBrainz](https://musicbrainz.org/).
-Those things are extracted from the YouTube video's title and channel name, so it may be inaccurate.
-If it can't find the music on MusicBrainz, it will use the thumbnail as the cover art, the channel name as the artist and the video title as the song title.
-It also downloads the lyrics from [LrcLib](https://lrclib.net/), embeds it into the MP3 file and also creates a lyrics file.
-
-If you give an existing directory as the output, or run the command twice, it will only download the music that aren't present in the directory but present in the playlist, and ask you if you want to delete the music files that are not present in the playlist anymore.
-You can also rename the files, because the youtube video's id is stored in the MP3 file, so no worries.
-
-It will create a subdirectory in the output directory named as the YouTube playlist.
-
-The program will fail if the output directory doesn't exists.
-
-## Arguments
-
-- `-p|--playlist` - The YouTube playlist id to download
-- `-o|--output` - Output directory to sync the playlist to
-- `--nodownload` - Don't download any new YouTube music videos
-- `--nometadata` - Don't fetch song metadata
-- `--nolyrics` - Don't fetch song lyrics
-- `--httpcache` -- Directory to use as a HTTP cache for the API requests (metadata and lyrics).
 
 ## Would you use this?
 

@@ -216,7 +216,7 @@ static class MusicBrainz
     {
         if (v is null) return null;
         int i = v.IndexOf('(');
-        if (i != -1)
+        if (i is not -1 and not 0)
         {
             return v[..i].TrimEnd();
         }
@@ -230,7 +230,7 @@ static class MusicBrainz
 
         if (string.IsNullOrEmpty(title) || artists.Length == 0)
         {
-            Log.Warning($"Empty file metadata");
+            Log.Warning($"Empty file metadata ({file.Name})");
             return;
         }
 

@@ -7,6 +7,7 @@ sealed class AppArguments
     public required ImmutableArray<string> PlaylistIds { get; init; }
     public required bool UseCache { get; init; }
     public required string HttpCachePath { get; init; }
+    public required string? YouTubeCredentialsPath { get; init; }
     public required bool DryRun { get; init; }
     public required bool Download { get; init; }
     public required bool Metadata { get; init; }

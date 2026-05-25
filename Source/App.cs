@@ -6,6 +6,8 @@ using YoutubeExplode.Playlists;
 using YoutubeExplode.Common;
 using System.Collections.Immutable;
 using System.Text;
+using Google.Apis.YouTube.v3;
+using System.Diagnostics;
 
 namespace YtPlaylist;
 
@@ -30,7 +32,6 @@ sealed class App
         List<PlaylistVideo> online = [];
 
         YouTubeCache? youTubeCache = new(Arguments.HttpCachePath);
-        youTubeCache = null;
 
         Log.Section($"Synchronizing playlists");
 
@@ -42,7 +43,7 @@ sealed class App
             {
                 foreach (string playlistId in Arguments.PlaylistIds.Distinct().ToArray().WithProgress(progressBar))
                 {
-                    if (youTubeCache is null || !youTubeCache.LoadPlaylist(playlistId, out Playlist? playlist))
+                    if (!Arguments.UseCache || youTubeCache is null || !youTubeCache.LoadPlaylist(playlistId, out Playlist? playlist))
                     {
                         try
                         {
@@ -160,6 +161,128 @@ sealed class App
                     Console.Write($" {items[0].Author} - {items[0].Title}");
                     Console.WriteLine();
                 }
+
+                if (string.IsNullOrWhiteSpace(Arguments.YouTubeCredentialsPath))
+                {
+                    Log.Warning($"Cannot interact with the YouTube API: Credentials path not specified");
+                }
+                else if (await Log.AskYesNoAsync("Do you want to remove duplicated music videos?", false, cancellationToken))
+                {
+                    Log.MinorAction("Logging in");
+                    YouTubeService yt = await YoutubeServiceFactory.CreateAsync(Arguments.YouTubeCredentialsPath, Path.Combine(Arguments.HttpCachePath, "token_cache"), cancellationToken);
+
+                    foreach (List<PlaylistVideo> items in duplicates.Values)
+                    {
+                        ImmutableArray<Playlist> w = items.Select(w => playlists.FirstOrDefault(v => v.Id.Value == w.PlaylistId.Value)).Where(v => v is not null).ToImmutableArray()!;
+                        if (w.IsEmpty) continue;
+
+                        Log.None();
+                        Log.None($"Video: {Ansi.Bold($"{items[0].Author.ChannelTitle} - {items[0].Title}")} ({items[0].Id}) (https://www.youtube.com/watch?v={items[0].Id})");
+
+                        string? path = playlistFiles.Values.SelectMany(v => v).FirstOrDefault(v => v.Id == items[0].Id)?.Path;
+                        if (path is null)
+                        {
+                            Log.Warning($"Cannot preview music: Music file not found");
+                        }
+                        else if (await Log.AskYesNoAsync($"Preview music?", false, cancellationToken))
+                        {
+                            try
+                            {
+                                Process? process = Process.Start(new ProcessStartInfo()
+                                {
+                                    FileName = "ffplay",
+                                    Arguments = $"\"{path}\"",
+                                    UseShellExecute = true,
+                                });
+                                if (process is null)
+                                {
+                                    Log.Error($"Failed to start ffplay");
+                                }
+                                else
+                                {
+                                    await process.WaitForExitAsync(cancellationToken);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex);
+                            }
+                        }
+                        Log.None();
+
+                        for (int i = 0; i < w.Length; i++)
+                        {
+                            Console.Write("    ");
+                            Console.ForegroundColor = ConsoleColor.Blue;
+                            Console.Write(i);
+                            Console.ResetColor();
+                            Console.Write(" - ");
+                            Console.Write(w[i].Title);
+                            Console.WriteLine();
+                        }
+
+                        int index = await Log.AskInputAsync($"Where do you want to keep it? ({0} - {w.Length - 1})", bool (string input, out int result) =>
+                        {
+                            if (!int.TryParse(input, out result))
+                            {
+                                Log.Error($"Invalid input");
+                                return false;
+                            }
+
+                            if (result < 0 || result >= w.Length)
+                            {
+                                Log.Error($"Input is not in the range [{0}, {w.Length - 1}]");
+                                return false;
+                            }
+
+                            return true;
+                        }, cancellationToken);
+
+                        for (int i = 0; i < w.Length; i++)
+                        {
+                            if (i == index) continue;
+
+                            try
+                            {
+                                PlaylistItemsResource.ListRequest listRequest = yt.PlaylistItems.List("id,snippet");
+                                listRequest.PlaylistId = w[i].Id;
+                                listRequest.VideoId = items[0].Id;
+                                listRequest.MaxResults = 1;
+
+                                Log.Debug($"Searching for item id in {w[i].Title} ({w[i].Id})");
+                                Google.Apis.YouTube.v3.Data.PlaylistItemListResponse listResponse = await listRequest.ExecuteAsync(cancellationToken);
+                                Google.Apis.YouTube.v3.Data.PlaylistItem? item = listResponse.Items?.FirstOrDefault();
+
+                                if (item == null)
+                                {
+                                    Log.Error($"Video {items[0].Author.ChannelTitle} - {items[i].Title} ({items[i].Id}) not found in playlist {w[i].Title} ({w[i].Id}).");
+                                    continue;
+                                }
+
+                                Log.Debug($"Deleting item from {w[i].Title} ({w[i].Id})");
+                                PlaylistItemsResource.DeleteRequest deleteRequest = yt.PlaylistItems.Delete(item.Id);
+                                await deleteRequest.ExecuteAsync(cancellationToken);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex);
+                            }
+                        }
+                    }
+
+                    //yt.PlaylistItems.Delete()
+
+                    //ImmutableArray<string> all = [.. File.ReadAllLines("/home/bb/Projects/YtPlaylist/backup.txt")];
+                    //await foreach (YouTubePlaylistItem item in YouTubePlaylist.GetItems(yt, "PL3pKDp-F7PPtqyA3Q_F8lpLohgbZnOAiU"))
+                    //{
+                    //    File.AppendAllLines("/home/bb/Projects/YtPlaylist/backup.txt", [item.VideoId ?? string.Empty]);
+                    //}
+
+                    //foreach (string item in all.Skip(193))
+                    //{
+                    //    await YouTubePlaylist.AddItem(yt, "PL3pKDp-F7PPsEeyNmtYYBhM6u6TY_tpx7", item).ConfigureAwait(false);
+                    //}
+                }
             }
         }
 
@@ -178,7 +301,7 @@ sealed class App
                 Console.WriteLine();
             }
 
-            if (!Arguments.DryRun && Log.AskYesNo("Do you want to delete the files above?", true))
+            if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
             {
                 foreach (string file in unexpectedMusicFiles)
                 {
@@ -206,7 +329,7 @@ sealed class App
                 Console.WriteLine();
             }
 
-            if (!Arguments.DryRun && Log.AskYesNo("Do you want to delete the files above?", true))
+            if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
             {
                 HashSet<string> modifiedPlaylists = [];
                 Log.MinorAction("Deleting music files");
@@ -512,21 +635,25 @@ sealed class App
 
     async Task DownloadPlaylist(Playlist playlist, YoutubeClient youtube, YouTubeCache? youTubeCache, List<PlaylistVideo> online, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
-        if (youTubeCache is not null && youTubeCache.LoadPlaylistItems(playlist.Id.Value, out ImmutableArray<PlaylistVideo> items))
+        Channel<PlaylistVideo> channel = Channel.CreateUnbounded<PlaylistVideo>();
+
+        Span<Task> tasks = new Task[1 + MaxConcurrency];
+
+        if (Arguments.UseCache && youTubeCache is not null && youTubeCache.LoadPlaylistItems(playlist.Id.Value, out ImmutableArray<PlaylistVideo> items))
         {
-            foreach (PlaylistVideo item in items)
+            tasks[0] = Task.Run(async () =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await HandleVideo(youtube, playlist, item, path, localFiles, cancellationToken);
-                online.Add(item);
-            }
+                foreach (PlaylistVideo video in items)
+                {
+                    online.Add(video);
+                    await channel.Writer.WriteAsync(video, cancellationToken);
+                }
+                channel.Writer.Complete();
+                if (cancellationToken.IsCancellationRequested) return;
+            }, cancellationToken);
         }
         else
         {
-            Channel<PlaylistVideo> channel = Channel.CreateUnbounded<PlaylistVideo>();
-
-            Span<Task> tasks = new Task[1 + MaxConcurrency];
-
             tasks[0] = Task.Run(async () =>
             {
                 List<PlaylistVideo> videos = [];
@@ -543,14 +670,14 @@ sealed class App
                 channel.Writer.Complete();
                 if (cancellationToken.IsCancellationRequested) return;
             }, cancellationToken);
-
-            for (int i = 0; i < MaxConcurrency; i++)
-            {
-                tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, channel, path, localFiles, cancellationToken);
-            }
-
-            await Task.WhenAll(tasks);
         }
+
+        for (int i = 0; i < MaxConcurrency; i++)
+        {
+            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, channel, path, localFiles, cancellationToken);
+        }
+
+        await Task.WhenAll(tasks);
     }
 
     async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, Channel<PlaylistVideo> channel, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
@@ -590,7 +717,15 @@ sealed class App
         {
             if (File.Exists(filename))
             {
-                Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping download");
+                if (localFiles.Any(v => v.Playlist.Id == playlist.Id))
+                {
+                    Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping entirely");
+                    return;
+                }
+                else
+                {
+                    Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping download");
+                }
             }
             else
             {

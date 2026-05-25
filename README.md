@@ -16,13 +16,23 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 ## Arguments
 
-- `-p|--playlist` - The YouTube playlist id to download
-- `-o|--output` - Output directory to sync the playlist to
+- `-p|--playlist <id>` - The YouTube playlist id to download (you can specify more)
+- `-o|--output <path>` - Output directory to sync the playlists to
 - `--nodownload` - Don't download any new YouTube music videos
 - `--nometadata` - Don't fetch song metadata
 - `--nolyrics` - Don't fetch song lyrics
-- `--httpcache` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube).
+- `--httpcache <path>` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube)
 - `--ignoremetawarnings` - Ignores all metadata warnings produced when it cannot parse the filename, or it cannot find the MusicBrainz record
+- `--ytcredentials <path>` - Specifies where to save the credentials when interacting with the YouTube API
+- `--usecache` - For testing only
+- `--dry` - For testing only
+
+> [!TIP]
+> You can get the playlist id by navigating to the playlist on YouTube. For example:
+>
+> <https://music.youtube.com/playlist?list=PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs>
+>
+> And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
 
 ## Features
 
@@ -53,18 +63,7 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 ### Duplicate detection
 
-- It warns you if you have the same music file in multiple different playlists. It lists you the playlists the music is in, and the music metadata. (i.e. `[Playlist1, Playlist2] Artist - Title`)
-
-## Example Usage
-
-`YtPlaylist -p YOUTUBE_PLAYLIST_ID -o ./Music`
-
-> [!TIP]
-> You can get the playlist id by navigating to the playlist on YouTube. For example:
->
-> <https://music.youtube.com/playlist?list=PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs>
->
-> And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
+- It warns you if you have the same music in multiple different playlists. If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
 
 ## Would you use this?
 

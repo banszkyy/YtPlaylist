@@ -58,21 +58,6 @@ static class Program
 
     static int Main(string[] args)
     {
-        //YouTubeService yt = await YoutubeServiceFactory.CreateAsync();
-        //
-        //ImmutableArray<string> all = [.. File.ReadAllLines("/home/bb/Projects/YtPlaylist/backup.txt")];
-        ////await foreach (YouTubePlaylistItem item in YouTubePlaylist.GetItems(yt, "PL3pKDp-F7PPtqyA3Q_F8lpLohgbZnOAiU"))
-        ////{
-        ////    File.AppendAllLines("/home/bb/Projects/YtPlaylist/backup.txt", [item.VideoId ?? string.Empty]);
-        ////}
-        //
-        //foreach (string item in all.Skip(193))
-        //{
-        //    await YouTubePlaylist.AddItem(yt, "PL3pKDp-F7PPsEeyNmtYYBhM6u6TY_tpx7", item).ConfigureAwait(false);
-        //}
-        //
-        //return 0;
-
 #if DEBUG
         args = (
             $"--playlist PL3pKDp-F7PPuo3MIneE9MX77zKcEiw-QZ " +
@@ -97,18 +82,21 @@ static class Program
             $"--playlist PL3pKDp-F7PPvAKSEGEUpmrfj6fN4M8hRd " +
             $"--httpcache /home/bb/Projects/YtPlaylist/cache " +
             $"--output /d2/Music " +
+            $"--ignoremetawarnings " +
+            //$"--usecache " +
             //$"--dry " +
             string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 #endif
 
         List<string> playlistIds = [];
         string? outputPath = null;
-        bool useCache = true;
+        bool useCache = false;
         bool dryRun = false;
         bool download = true;
         bool metadata = true;
         bool lyrics = true;
         string? httpCachePath = null;
+        string? youTubeCredentialsPath = null;
         bool ignoreMetaWarnings = false;
 
         for (int i = 0; i < args.Length; i++)
@@ -139,8 +127,8 @@ static class Program
 
                     outputPath = args[++i];
                     break;
-                case "--nocache":
-                    useCache = false;
+                case "--usecache":
+                    useCache = true;
                     break;
                 case "--dry":
                     dryRun = true;
@@ -171,6 +159,21 @@ static class Program
                     }
 
                     httpCachePath = args[++i];
+                    break;
+                case "--ytcredentials":
+                    if (youTubeCredentialsPath is not null)
+                    {
+                        Log.Error($"YouTube credentials path already defined");
+                        return 1;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    youTubeCredentialsPath = args[++i];
                     break;
                 default:
                     Log.Error($"Unexpected argument {args[i]}");
@@ -226,6 +229,7 @@ static class Program
                 OutputPath = outputPath,
                 HttpCachePath = httpCachePath ?? "./cache",
                 IgnoreMetaWarnings = ignoreMetaWarnings,
+                YouTubeCredentialsPath = youTubeCredentialsPath,
             },
         }.Run(cancellationTokenSource.Token).ContinueWith(task =>
         {

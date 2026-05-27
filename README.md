@@ -1,6 +1,6 @@
 # YouTube Playlist Synchronizer
 
-[![.Net 11.0](https://img.shields.io/badge/10.0-606060?style=flat-square&logo=dotnet&labelColor=512BD4)](#)
+[![.Net 11.0](https://img.shields.io/badge/11.0-606060?style=flat-square&logo=dotnet&labelColor=512BD4)](#)
 
 Downloads and synchronizes YouTube playlists as MP3 files so you can listen to them offline!!!
 
@@ -13,6 +13,7 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 - `ffmpeg`
 - `yt-dlp`
+- `ffplay` (optional, only for previewing music)
 
 ## Arguments
 

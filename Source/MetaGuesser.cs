@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
+using YoutubeExplode.Playlists;
 
 namespace YtPlaylist;
 
@@ -28,6 +29,22 @@ public static class MetaGuesser
         {
             return Message;
         }
+    }
+
+    public static Meta Guess(PlaylistVideo video, List<Warning> warnings)
+    {
+        string artist = video.Author.ChannelTitle;
+        string title = video.Title;
+
+        if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
+        {
+            title = title[(artist.Length + 3)..].TrimStart();
+        }
+
+        artist = artist.TrimEnd(" - Topic").TrimEnd();
+        string[] artists = artist.Split('&', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        return new Meta([.. artists], title, null);
     }
 
     public static Meta Guess(string name, List<Warning> warnings)

@@ -690,6 +690,12 @@ sealed class App
         }
     }
 
+    static string GetFileNameWithoutExtension(PlaylistVideo video)
+    {
+        MetaGuesser.Meta meta = MetaGuesser.Guess(video, []);
+        return $"{SanitizeFilename(string.Join(" & ", meta.Artists))} - {SanitizeFilename(meta.Title)}";
+    }
+
     async Task HandleVideo(YoutubeClient youtube, Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         MusicFile? musicFile = localFiles.FirstOrDefault(v => v.Id == video.Id.Value);
@@ -700,18 +706,7 @@ sealed class App
             return;
         }
 
-        string artist = video.Author.ChannelTitle;
-        string title = video.Title;
-
-        if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
-        {
-            title = title[(artist.Length + 3)..].TrimStart();
-        }
-
-        artist = artist.TrimEnd(" - Topic").TrimEnd();
-        string[] artists = artist.Split('&', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-
-        string filename = Path.Combine(path, $"{SanitizeFilename(artist)} - {SanitizeFilename(title)}.mp3");
+        string filename = Path.Combine(path, $"{GetFileNameWithoutExtension(video)}.mp3");
 
         if (Arguments.Download)
         {
@@ -776,8 +771,11 @@ sealed class App
                     await TagUtils.DownloadCoverImage(file, new Uri(video.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute), "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
                 }
 
-                file.Tag.Title = diff.Modify("Title", file.Tag.Title, title);
-                file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, artists);
+                List<MetaGuesser.Warning> warnings = [];
+                MetaGuesser.Meta meta = MetaGuesser.Guess(video, warnings);
+
+                file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.Title);
+                file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
             }
 
             if (diff.Changes.Count > 0)

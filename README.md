@@ -6,8 +6,8 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 ## Build Dependencies
 
-- [BBpezsgo/MusicBrainz](https://github.com/BBpezsgo/MusicBrainz)
-- [BBpezsgo/Logger](https://github.com/BBpezsgo/Logger)
+- [BBpezsgo/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
+- [BBpezsgo/Logger](https://github.com/banszkyy/Logger)
 
 ## Runtime Dependencies
 

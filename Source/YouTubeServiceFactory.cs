@@ -6,7 +6,7 @@ public static class YoutubeServiceFactory
 {
     public static async Task<YouTubeService> CreateAsync(string credentialsFilePath, string tokenCacheDirectoryPath, CancellationToken cancellationToken = default)
     {
-        using FileStream stream = new("/home/bb/Projects/YtPlaylist/credentials.json", FileMode.Open, FileAccess.Read);
+        using FileStream stream = new(credentialsFilePath, FileMode.Open, FileAccess.Read);
         return new YouTubeService(new()
         {
             HttpClientInitializer = await GoogleWebAuthorizationBroker.AuthorizeAsync(

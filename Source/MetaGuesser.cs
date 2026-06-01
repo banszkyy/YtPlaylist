@@ -6,11 +6,53 @@ namespace YtPlaylist;
 
 public static class MetaGuesser
 {
-    public readonly struct Meta(ImmutableArray<string> artists, string title, string? remixedBy)
+    public readonly struct Meta(ImmutableArray<string> artists, string title, string? remixedBy) : IEquatable<Meta>
     {
         public readonly ImmutableArray<string> Artists = artists;
         public readonly string Title = title;
         public readonly string? RemixedBy = remixedBy;
+
+        public bool Equals(Meta other)
+        {
+            return Equals(other, StringComparison.Ordinal);
+        }
+
+        public bool Equals(Meta other, StringComparison stringComparisonType)
+        {
+            if (Artists.Length != other.Artists.Length) return false;
+            for (int i = 0; i < Artists.Length; i++)
+            {
+                if (!string.Equals(Artists[i], other.Artists[i], stringComparisonType)) return false;
+            }
+            if (!string.Equals(Title, other.Title, stringComparisonType)) return false;
+            if (!string.Equals(RemixedBy, other.RemixedBy, stringComparisonType)) return false;
+            return true;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is Meta other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Artists, Title, RemixedBy);
+        }
+
+        public static bool operator ==(Meta left, Meta right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Meta left, Meta right)
+        {
+            return !(left == right);
+        }
+
+        public override string ToString()
+        {
+            return $"{string.Join(" & ", Artists)} - {Title}{(!string.IsNullOrEmpty(RemixedBy) ? $" ({RemixedBy} Remix)" : "")}";
+        }
     }
 
     static readonly FrozenDictionary<char, char> BracketPairs = new Dictionary<char, char>()
@@ -31,41 +73,23 @@ public static class MetaGuesser
         }
     }
 
-    public static Meta Guess(PlaylistVideo video, List<Warning> warnings)
+    static void GuessRemix(ref ReadOnlySpan<char> title, out string? remixedBy, List<Warning> warnings)
     {
-        string artist = video.Author.ChannelTitle;
-        string title = video.Title;
-
-        if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
+        remixedBy = null;
+        if (title.Contains("remix", StringComparison.InvariantCultureIgnoreCase))
         {
-            title = title[(artist.Length + 3)..].TrimStart();
-        }
-
-        artist = artist.TrimEnd(" - Topic").TrimEnd();
-        string[] artists = artist.Split('&', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-
-        return new Meta([.. artists], title, null);
-    }
-
-    public static Meta Guess(string name, List<Warning> warnings)
-    {
-        ReadOnlySpan<char> _name = name.AsSpan();
-
-        string? remixedBy = null;
-        if (_name.Contains("remix", StringComparison.InvariantCultureIgnoreCase))
-        {
-            int i = _name.IndexOf("remix", StringComparison.InvariantCultureIgnoreCase);
+            int i = title.IndexOf("remix", StringComparison.InvariantCultureIgnoreCase);
             int l = i;
             int r = i;
-            while (l > 0 && !BracketPairs.ContainsKey(_name[l])) l--;
-            while (r + 1 < _name.Length && !BracketPairs.ContainsKey(_name[r])) r++;
-            if (r + 1 != _name.Length)
+            while (l > 0 && !BracketPairs.ContainsKey(title[l])) l--;
+            while (r + 1 < title.Length && !BracketPairs.ContainsKey(title[r])) r++;
+            if (r + 1 != title.Length)
             {
                 warnings.Add(new Warning($"Remix part is not at the end", r + 1));
             }
             else
             {
-                ReadOnlySpan<char> part = _name[l..(r + 1)];
+                ReadOnlySpan<char> part = title[l..(r + 1)];
                 if (BracketPairs.TryGetValue(part[0], out char expectedClosingBracket))
                 {
                     if (part[^1] == expectedClosingBracket)
@@ -76,15 +100,12 @@ public static class MetaGuesser
                             if (!part.EndsWith(suffix, StringComparison.CurrentCultureIgnoreCase)) continue;
 
                             part = part[..^suffix.Length].TrimEnd();
+
                             remixedBy = part.ToString();
-
-                            _name = _name[..l].TrimEnd();
-                            name = _name.ToString();
-
-                            goto ok;
+                            title = title[..l].TrimEnd();
+                            return;
                         }
                         warnings.Add(new Warning($"Remix suffix not found", l + 1));
-                    ok:;
                     }
                     else
                     {
@@ -98,12 +119,36 @@ public static class MetaGuesser
             }
         }
 
-        ReadOnlySpan<string> parts = name.Split(" - ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    public static Meta Guess(PlaylistVideo video, List<Warning> warnings)
+    {
+        ReadOnlySpan<char> artist = video.Author.ChannelTitle;
+        ReadOnlySpan<char> title = video.Title;
+
+        if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
+        {
+            title = title[(artist.Length + 3)..].TrimStart();
+        }
+
+        GuessRemix(ref title, out string? remixedBy, warnings);
+
+        artist = artist.TrimEnd(" - Topic").TrimEnd();
+        string[] artists = artist.ToString().Split('&', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        return new Meta([.. artists], title.ToString(), remixedBy);
+    }
+
+    public static Meta Guess(ReadOnlySpan<char> text, List<Warning> warnings)
+    {
+        GuessRemix(ref text, out string? remixedBy, warnings);
+
+        ReadOnlySpan<string> parts = text.ToString().Split(" - ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         if (parts.Length < 2)
         {
             warnings.Add(new Warning($"It has {parts.Length} part(s)", 0));
-            return new Meta([], name, remixedBy);
+            return new Meta([], text.ToString(), remixedBy);
         }
 
         if (parts.Length > 2)

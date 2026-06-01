@@ -17,3 +17,6 @@ dotnet_diagnostic.IDE0046.severity = silent
 
 # IDE0045: Convert to conditional expression
 dotnet_diagnostic.IDE0045.severity = silent
+
+# IDE0063: Use simple 'using' statement
+dotnet_diagnostic.IDE0063.severity = silent

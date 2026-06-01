@@ -31,6 +31,8 @@ sealed class App
         List<string> unexpectedMusicFiles = [];
         List<PlaylistVideo> online = [];
 
+        Dictionary<string, TagLib.Tag> tagCache = [];
+
         YouTubeCache? youTubeCache = new(Arguments.HttpCachePath);
 
         Log.Section($"Synchronizing playlists");
@@ -375,7 +377,6 @@ sealed class App
                 },
             };
 
-
             using (ProgressBar progressBar = new() { MaxWidth = 40 })
             {
                 foreach (MusicFile musicFile in playlistFiles.Values.SelectMany(v => v).ToArray().WithProgress(progressBar))
@@ -386,6 +387,7 @@ sealed class App
                     string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
 
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
+                    tagCache[musicFile.Path] = file.Tag;
 
                     if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId))
                     {
@@ -455,6 +457,7 @@ sealed class App
                     string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
 
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
+                    tagCache[musicFile.Path] = file.Tag;
 
                     if (string.IsNullOrEmpty(file.Tag.Title)
                         || file.Tag.Performers is null
@@ -565,6 +568,147 @@ sealed class App
                     }
 
                 skipFile:;
+                }
+            }
+        }
+
+        {
+            Dictionary<string, List<MusicFile>> duplicates = [];
+            ImmutableArray<(MusicFile File, string Meta)> all = [.. playlistFiles.Values.SelectMany(v => v).Select(v =>
+            {
+                if (v.Video is not null)
+                {
+                    return (v, MetaGuesser.Guess(v.Video, []).ToString());
+                }
+                else if (tagCache.TryGetValue(v.Path, out TagLib.Tag? tag))
+                {
+                    return (v, $"{string.Join(" & ", tag.Performers)} - {tag.Title}{(!string.IsNullOrEmpty(tag.RemixedBy) ? $"({tag.RemixedBy} Remix)" : null)}");
+                }
+                else
+                {
+                    return (v, MetaGuesser.Guess(Path.GetFileNameWithoutExtension(v.Path), []).ToString());
+                }
+            })];
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (duplicates.ContainsKey(all[i].Meta)) continue;
+
+                for (int j = i + 1; j < all.Length; j++)
+                {
+                    if (all[i].Meta.Equals(all[j].Meta))
+                    {
+                        if (!duplicates.TryGetValue(all[i].Meta, out List<MusicFile>? dups))
+                        {
+                            dups = duplicates[all[i].Meta] = [all[i].File];
+                        }
+                        dups.Add(all[j].File);
+                    }
+                }
+            }
+
+            if (duplicates.Count > 0)
+            {
+                Log.Warning($"Possible duplicated music items found:");
+                foreach ((string meta, List<MusicFile> items) in duplicates)
+                {
+                    Console.Write("    ");
+                    Console.Write('[');
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        if (i > 0) Console.Write(", ");
+                        Console.Write(items[i].Playlist.Title);
+                    }
+                    Console.Write(']');
+                    Console.Write($" {meta}");
+                    Console.WriteLine();
+                }
+
+                if (string.IsNullOrWhiteSpace(Arguments.YouTubeCredentialsPath))
+                {
+                    Log.Warning($"Cannot interact with the YouTube API: Credentials path not specified");
+                }
+                else if (await Log.AskYesNoAsync("Do you want to remove duplicated music videos?", false, cancellationToken))
+                {
+                    Log.MinorAction("Logging in");
+                    YouTubeService yt = await YoutubeServiceFactory.CreateAsync(Arguments.YouTubeCredentialsPath, Path.Combine(Arguments.HttpCachePath, "token_cache"), cancellationToken);
+
+                    foreach ((string meta, List<MusicFile> _items) in duplicates)
+                    {
+                        ImmutableArray<MusicFile> items = [.. _items.Where(v => v.Video is not null)];
+                        if (items.IsEmpty)
+                        {
+                            Log.Warning($"Something went wrong meow");
+                            continue;
+                        }
+
+                        Log.None();
+                        Log.None($"Video: {Ansi.Bold(meta)}");
+
+                        for (int i = 0; i < items.Length; i++)
+                        {
+                            MusicFile item = items[i];
+                            Console.Write("    ");
+                            Console.ForegroundColor = ConsoleColor.Blue;
+                            Console.Write(i + 1);
+                            Console.ResetColor();
+                            Console.Write(" - ");
+                            Console.Write($"[{item.Playlist.Title}] {item.Video!.Author} - {item.Video.Title} (https://www.youtube.com/watch?v={item.Video.Id})");
+                            Console.WriteLine();
+                        }
+
+                        int index = await Log.AskInputAsync($"Which one do you want to keep? ({1} - {items.Length} or 0 to skip)", bool (string input, out int result) =>
+                        {
+                            if (!int.TryParse(input, out result))
+                            {
+                                Log.Error($"Invalid input");
+                                return false;
+                            }
+
+                            if (result < 0 || result > items.Length)
+                            {
+                                Log.Error($"Input is not in the range [{0}, {items.Length}]");
+                                return false;
+                            }
+
+                            return true;
+                        }, cancellationToken);
+
+                        if (index == 0) continue;
+                        index--;
+
+                        for (int i = 0; i < items.Length; i++)
+                        {
+                            if (i == index) continue;
+                            PlaylistVideo video = items[i].Video!;
+
+                            try
+                            {
+                                PlaylistItemsResource.ListRequest listRequest = yt.PlaylistItems.List("id,snippet");
+                                listRequest.PlaylistId = video.PlaylistId;
+                                listRequest.VideoId = video.Id;
+                                listRequest.MaxResults = 1;
+
+                                Log.Debug($"Searching for item id in {video.Title} ({video.Id})");
+                                Google.Apis.YouTube.v3.Data.PlaylistItemListResponse listResponse = await listRequest.ExecuteAsync(cancellationToken);
+                                Google.Apis.YouTube.v3.Data.PlaylistItem? item = listResponse.Items?.FirstOrDefault();
+
+                                if (item == null)
+                                {
+                                    Log.Error($"Video {video.Author.ChannelTitle} - {video.Title} ({video.Id}) not found in playlist {video.Title} ({video.Id}).");
+                                    continue;
+                                }
+
+                                Log.Debug($"Deleting item from {video.Title} ({video.Id})");
+                                PlaylistItemsResource.DeleteRequest deleteRequest = yt.PlaylistItems.Delete(item.Id);
+                                await deleteRequest.ExecuteAsync(cancellationToken);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex);
+                            }
+                        }
+                    }
                 }
             }
         }

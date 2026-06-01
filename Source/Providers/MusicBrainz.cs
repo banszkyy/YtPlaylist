@@ -67,13 +67,18 @@ static class MusicBrainz
         return candidates.FirstOrDefault();
     }
 
-    static async Task<QueryResult<Recording>?> LookupRecording(MusicBrainzClient musicBrainz, string artist, string recordingTitle, CancellationToken cancellationToken)
+    static async Task<QueryResult<Recording>?> LookupRecording(MusicBrainzClient musicBrainz, string artist, string recordingTitle, string? remixedBy, CancellationToken cancellationToken)
     {
         StringBuilder queryBuilder = new();
 
         queryBuilder.Append($"artistname:{artist.Quote()}");
 
         queryBuilder.Append($" AND recording:{recordingTitle.Quote()}");
+
+        if (!string.IsNullOrEmpty(remixedBy))
+        {
+            queryBuilder.Append($" AND creditname:{remixedBy.Quote()}");
+        }
 
         try
         {
@@ -243,7 +248,7 @@ static class MusicBrainz
             if (file.Tag.RemixedBy is not null && file.Tag.RemixedBy.Contains(artist, StringComparison.InvariantCultureIgnoreCase)) continue;
 
             List<Warning> warnings = [];
-            QueryResult<Recording>? recordings = await LookupRecording(musicBrainz, artist, file.Tag.Title, cancellationToken);
+            QueryResult<Recording>? recordings = await LookupRecording(musicBrainz, artist, file.Tag.Title, file.Tag.RemixedBy, cancellationToken);
             recording = FilterRecordings(recordings?.Items, artist, file.Tag.Title, file.Tag.RemixedBy, warnings);
 
             if (recording is null)

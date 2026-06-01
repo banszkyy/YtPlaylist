@@ -64,8 +64,11 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 ### Duplicate detection
 
-- It warns you if you have the same music in multiple different playlists. If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
+- Warns you if you have the same music in multiple different playlists.
+- Warns you if you have very extremely suspiciously similar music files.
+
+If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
 
 ## Would you use this?
 
-This program fulfills my needs, so no additional crazy features are planned, but if you want some you would actually use, tell me!
+This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!

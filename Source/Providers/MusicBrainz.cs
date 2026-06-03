@@ -74,11 +74,11 @@ static class MusicBrainz
             queryBuilder.Append($" AND creditname:{remixedBy.Quote()}");
         }
 
-        string query = queryBuilder.ToString();
+        string query = $"https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording";
 
         try
         {
-            return (await musicBrainz.Recordings.SearchAsync(query), query);
+            return (await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString()), query);
         }
         catch (Exception ex)
         {
@@ -95,7 +95,7 @@ static class MusicBrainz
 
         queryBuilder.Append($" AND recording:{recordingTitle.Quote()}");
 
-        string query = queryBuilder.ToString();
+        string query = $"https://musicbrainz.org/artist/{artist.Id}/recordings?filter.name={Uri.EscapeDataString(recordingTitle)}";
 
         try
         {
@@ -141,13 +141,13 @@ static class MusicBrainz
 
             if (bestRecordings.Count > 1)
             {
-                issues.Add($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} (check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
+                issues.Add($"Multiple recordings found (check {query} )");
                 return null;
             }
 
             if (bestScore != 100)
             {
-                issues.Add($"Similar recording found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} --> {Ansi.Bold(string.Join(" & ", bestRecordings[0].Credits.Select(v => v.Name)))} - {Ansi.Bold(bestRecordings[0].Title)}(check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
+                issues.Add($"Similar recording found (check {query} )");
                 return null;
             }
 
@@ -157,7 +157,7 @@ static class MusicBrainz
         {
             if (recordings.Count > 1)
             {
-                issues.Add($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} (check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
+                issues.Add($"Multiple recordings found (check {query} )");
                 return null;
             }
 
@@ -274,9 +274,9 @@ static class MusicBrainz
 
         List<Release> appearedInReleases = recording.Releases ?? [];
 
-        if (appearedInReleases.Any(v => v.Status == "Offical"))
+        if (appearedInReleases.Any(v => v.Status == "Official"))
         {
-            appearedInReleases = [.. appearedInReleases.Where(v => v.Status == "Offical")];
+            appearedInReleases = [.. appearedInReleases.Where(v => v.Status == "Official")];
         }
         file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, null);
         file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, null);
@@ -326,19 +326,14 @@ static class MusicBrainz
             file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, []);
             file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, null);
 
-            if (release.ReleaseGroup is not null)
+            ReleaseGroup? releaseGroup = release.ReleaseGroup;
+            if (releaseGroup is not null)
             {
-                if (release.ReleaseGroup.PrimaryType == "Album")
+                file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, releaseGroup.Id);
+
+                if (releaseGroup.PrimaryType == "Album")
                 {
-                    ReleaseGroup releaseGroup = release.ReleaseGroup;
-
-                    file.Tag.MusicBrainzReleaseGroupId = releaseGroup.Id;
-
-                    if (file.Tag.Album != releaseGroup.Title)
-                    {
-                        file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, releaseGroup.Title);
-                        file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, releaseGroup.Id);
-                    }
+                    file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, releaseGroup.Title);
 
                     if (releaseGroup.Credits is not null)
                     {
@@ -348,10 +343,6 @@ static class MusicBrainz
                             file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, albumArtists);
                         }
                     }
-                }
-                else
-                {
-                    issues?.Add($"Unknown release group type \"{release.ReleaseGroup.PrimaryType}\" (check https://musicbrainz.org/release/{release.Id} )");
                 }
             }
 

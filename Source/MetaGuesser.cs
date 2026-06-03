@@ -73,7 +73,7 @@ public static class MetaGuesser
         }
     }
 
-    static void GuessRemix(ref ReadOnlySpan<char> title, out string? remixedBy, List<Warning> warnings)
+    static void GuessRemix(ref ReadOnlySpan<char> title, out string? remixedBy, List<Warning>? warnings)
     {
         remixedBy = null;
         if (title.Contains("remix", StringComparison.InvariantCultureIgnoreCase))
@@ -85,7 +85,7 @@ public static class MetaGuesser
             while (r + 1 < title.Length && !BracketPairs.ContainsKey(title[r])) r++;
             if (r + 1 != title.Length)
             {
-                warnings.Add(new Warning($"Remix part is not at the end", r + 1));
+                warnings?.Add(new Warning($"Remix part is not at the end", r + 1));
             }
             else
             {
@@ -105,23 +105,23 @@ public static class MetaGuesser
                             title = title[..l].TrimEnd();
                             return;
                         }
-                        warnings.Add(new Warning($"Remix suffix not found", l + 1));
+                        warnings?.Add(new Warning($"Remix suffix not found", l + 1));
                     }
                     else
                     {
-                        warnings.Add(new Warning($"Expected closing bracket '{expectedClosingBracket}' but found '{part[^1]}'", l + part.Length - 1));
+                        warnings?.Add(new Warning($"Expected closing bracket '{expectedClosingBracket}' but found '{part[^1]}'", l + part.Length - 1));
                     }
                 }
                 else
                 {
-                    warnings.Add(new Warning($"Unknown bracket '{part[0]}'", l));
+                    warnings?.Add(new Warning($"Unknown bracket '{part[0]}'", l));
                 }
             }
         }
 
     }
 
-    public static Meta Guess(PlaylistVideo video, List<Warning> warnings)
+    public static Meta Guess(PlaylistVideo video, List<Warning>? warnings = null)
     {
         ReadOnlySpan<char> artist = video.Author.ChannelTitle;
         ReadOnlySpan<char> title = video.Title;
@@ -139,7 +139,7 @@ public static class MetaGuesser
         return new Meta([.. artists], title.ToString(), remixedBy);
     }
 
-    public static Meta Guess(ReadOnlySpan<char> text, List<Warning> warnings)
+    public static Meta Guess(ReadOnlySpan<char> text, List<Warning>? warnings = null)
     {
         GuessRemix(ref text, out string? remixedBy, warnings);
 
@@ -147,7 +147,7 @@ public static class MetaGuesser
 
         if (parts.Length < 2)
         {
-            warnings.Add(new Warning($"It has {parts.Length} part(s)", 0));
+            warnings?.Add(new Warning($"It has {parts.Length} part(s)", 0));
             return new Meta([], text.ToString(), remixedBy);
         }
 
@@ -174,14 +174,14 @@ public static class MetaGuesser
                     parts = parts[..^1];
                     goto ok;
                 }
-                warnings.Add(new Warning($"Remix suffix not found", 0));
+                warnings?.Add(new Warning($"Remix suffix not found", 0));
             ok:;
             }
         }
 
         if (parts.Length > 2)
         {
-            warnings.Add(new Warning($"It has more than two parts", 0));
+            warnings?.Add(new Warning($"It has more than two parts", 0));
         }
 
         List<string> artists = [];

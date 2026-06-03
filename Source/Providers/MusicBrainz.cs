@@ -18,7 +18,7 @@ static class MusicBrainz
         }
     }
 
-    static async Task<Artist?> LookupArtist(MusicBrainzClient musicBrainz, string artist, List<Warning> warnings, CancellationToken cancellationToken)
+    static async Task<Artist?> LookupArtist(MusicBrainzClient musicBrainz, string artist, List<string> issues, CancellationToken cancellationToken)
     {
         QueryResult<Artist>? onlineArtists = null;
 
@@ -30,8 +30,7 @@ static class MusicBrainz
         }
         catch (Exception ex)
         {
-            if (cancellationToken.IsCancellationRequested) return null;
-            Log.Error(ex);
+            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
             return null;
         }
 
@@ -55,19 +54,14 @@ static class MusicBrainz
 
         if (candidates.Count > 1)
         {
-            warnings.Add(new Warning($"Multiple artists found with name \"{artist}\""));
-            //foreach (Artist item in candidates)
-            //{
-            //    MusicBrainzUtils.Print(item);
-            //}
-
+            issues.Add($"Multiple artists found with name \"{artist}\"");
             return null;
         }
 
         return candidates.FirstOrDefault();
     }
 
-    static async Task<QueryResult<Recording>?> LookupRecording(MusicBrainzClient musicBrainz, string artist, string recordingTitle, string? remixedBy, CancellationToken cancellationToken)
+    static async Task<(QueryResult<Recording>? Result, string Query)> LookupRecording(MusicBrainzClient musicBrainz, string artist, string recordingTitle, string? remixedBy, CancellationToken cancellationToken)
     {
         StringBuilder queryBuilder = new();
 
@@ -80,19 +74,20 @@ static class MusicBrainz
             queryBuilder.Append($" AND creditname:{remixedBy.Quote()}");
         }
 
+        string query = queryBuilder.ToString();
+
         try
         {
-            return await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
+            return (await musicBrainz.Recordings.SearchAsync(query), query);
         }
         catch (Exception ex)
         {
-            if (cancellationToken.IsCancellationRequested) return null;
-            Log.Error(ex);
-            return null;
+            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
+            return (null, query);
         }
     }
 
-    static async Task<QueryResult<Recording>?> LookupRecording(MusicBrainzClient musicBrainz, Artist artist, string recordingTitle, CancellationToken cancellationToken)
+    static async Task<(QueryResult<Recording>? Result, string Query)> LookupRecording(MusicBrainzClient musicBrainz, Artist artist, string recordingTitle, CancellationToken cancellationToken)
     {
         StringBuilder queryBuilder = new();
 
@@ -100,19 +95,20 @@ static class MusicBrainz
 
         queryBuilder.Append($" AND recording:{recordingTitle.Quote()}");
 
+        string query = queryBuilder.ToString();
+
         try
         {
-            return await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
+            return (await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString()), query);
         }
         catch (Exception ex)
         {
-            if (cancellationToken.IsCancellationRequested) return null;
-            Log.Error(ex);
-            return null;
+            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
+            return (null, query);
         }
     }
 
-    static Recording? FilterRecordings(IReadOnlyList<Recording>? recordings, string artistName, string recordingTitle, string? remixedBy, List<Warning> warnings)
+    static Recording? FilterRecordings(IReadOnlyList<Recording>? recordings, string artistName, string recordingTitle, string? remixedBy, List<string> issues, string query)
     {
         if (recordings.IsNullOrEmpty())
         {
@@ -145,23 +141,13 @@ static class MusicBrainz
 
             if (bestRecordings.Count > 1)
             {
-                warnings.Add(new Warning($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)}"));
-                //foreach ((Recording recording, bool isFirst) in bestRecordings.WithSeparators())
-                //{
-                //    if (!isFirst) Console.WriteLine("=================================");
-                //    MusicBrainzUtils.Print(recording);
-                //}
+                issues.Add($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} (check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
                 return null;
             }
 
             if (bestScore != 100)
             {
-                warnings.Add(new Warning($"Similar recording found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} --> {Ansi.Bold(string.Join(" & ", bestRecordings[0].Credits.Select(v => v.Name)))} - {Ansi.Bold(bestRecordings[0].Title)}"));
-                //foreach ((Recording recording, bool isFirst) in bestRecordings.WithSeparators())
-                //{
-                //   if (!isFirst) Console.WriteLine("=================================");
-                //   MusicBrainzUtils.Print(recording);
-                //}
+                issues.Add($"Similar recording found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} --> {Ansi.Bold(string.Join(" & ", bestRecordings[0].Credits.Select(v => v.Name)))} - {Ansi.Bold(bestRecordings[0].Title)}(check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
                 return null;
             }
 
@@ -171,7 +157,7 @@ static class MusicBrainz
         {
             if (recordings.Count > 1)
             {
-                warnings.Add(new Warning($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)}"));
+                issues.Add($"Multiple recordings found: {Ansi.Bold(artistName)} - {Ansi.Bold(recordingTitle)} (check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=recording )");
                 return null;
             }
 
@@ -228,14 +214,14 @@ static class MusicBrainz
         return v;
     }
 
-    public static async Task FetchMetadata(TagLib.File file, Diff tagDiff, MusicBrainzClient musicBrainz, AppArguments appArguments, CancellationToken cancellationToken)
+    public static async Task FetchMetadata(TagLib.File file, Diff tagDiff, MusicBrainzClient musicBrainz, AppArguments appArguments, List<string>? issues, CancellationToken cancellationToken)
     {
         string? title = FixMetaString(file.Tag.Title);
         string[]? artists = [.. (file.Tag.Performers ?? []).Select(FixMetaString)!];
 
         if (string.IsNullOrEmpty(title) || artists.Length == 0)
         {
-            Log.Warning($"Empty file metadata ({file.Name})");
+            issues?.Add($"Empty file metadata (title and artists are empty)");
             return;
         }
 
@@ -247,32 +233,26 @@ static class MusicBrainz
 
             if (file.Tag.RemixedBy is not null && file.Tag.RemixedBy.Contains(artist, StringComparison.InvariantCultureIgnoreCase)) continue;
 
-            List<Warning> warnings = [];
-            QueryResult<Recording>? recordings = await LookupRecording(musicBrainz, artist, file.Tag.Title, file.Tag.RemixedBy, cancellationToken);
-            recording = FilterRecordings(recordings?.Items, artist, file.Tag.Title, file.Tag.RemixedBy, warnings);
+            List<string> searchIssues = [];
+            (QueryResult<Recording>? recordings, string query) = await LookupRecording(musicBrainz, artist, file.Tag.Title, file.Tag.RemixedBy, cancellationToken);
+            recording = FilterRecordings(recordings?.Items, artist, file.Tag.Title, file.Tag.RemixedBy, searchIssues, query);
 
             if (recording is null)
             {
-                warnings.Clear();
+                searchIssues.Clear();
 
-                Artist? artist_ = await LookupArtist(musicBrainz, artist, warnings, cancellationToken);
+                Artist? artist_ = await LookupArtist(musicBrainz, artist, searchIssues, cancellationToken);
 
                 if (artist_ is not null)
                 {
-                    recordings = await LookupRecording(musicBrainz, artist_, file.Tag.Title, cancellationToken);
-                    recording = FilterRecordings(recordings?.Items, artist, file.Tag.Title, file.Tag.RemixedBy, warnings);
+                    (recordings, query) = await LookupRecording(musicBrainz, artist_, file.Tag.Title, cancellationToken);
+                    recording = FilterRecordings(recordings?.Items, artist, file.Tag.Title, file.Tag.RemixedBy, searchIssues, query);
                 }
             }
 
             if (recording is null)
             {
-                if (!appArguments.IgnoreMetaWarnings)
-                {
-                    foreach (Warning warning in warnings)
-                    {
-                        Log.WarningNoprefix(warning.ToString());
-                    }
-                }
+                issues?.AddRange(searchIssues);
                 continue;
             }
 
@@ -290,19 +270,31 @@ static class MusicBrainz
 
         file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, recording.Title);
 
-        file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, recording.Credits is null ? [] : [.. recording.Credits.Select(v => v.Artist.Name)]);
+        file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, [.. (recording.Credits ?? []).Select(v => v.Name)]);
 
-        if (recording.Releases.IsNullOrEmpty())
+        List<Release> appearedInReleases = recording.Releases ?? [];
+
+        if (appearedInReleases.Any(v => v.Status == "Offical"))
         {
-            Log.Warning($"No release found: {Ansi.Bold(string.Join(" & ", artists))} - {Ansi.Bold(title)}");
+            appearedInReleases = [.. appearedInReleases.Where(v => v.Status == "Offical")];
+        }
+        file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, null);
+        file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, null);
+        file.Tag.MusicBrainzReleaseId = tagDiff.Modify("MusicBrainzReleaseId", file.Tag.MusicBrainzReleaseId, null);
+        file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, null);
 
-            file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, null);
-            file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, null);
-            file.Tag.MusicBrainzReleaseId = tagDiff.Modify("MusicBrainzReleaseId", file.Tag.MusicBrainzReleaseId, null);
+        if (appearedInReleases.Count > 1)
+        {
+            issues?.Add($"Recording {recording.Id} appeared in multiple releases (check https://musicbrainz.org/recording/{recording.Id} )");
+        }
+        else if (appearedInReleases.Count == 0)
+        {
+            issues?.Add($"Recording {recording.Id} didn't appear in any releases (check https://musicbrainz.org/recording/{recording.Id} )");
         }
         else
         {
-            Release release = GetCandidates(recording.Releases, CompareReleases).First();
+            Release release = appearedInReleases[0];
+            release = await musicBrainz.Releases.GetAsync(release.Id, "genres", "tags", "release-groups", "recordings");
 
             if (file.Tag.Pictures.Length == 0 || file.Tag.Pictures[0].Description != "MusicBrainz")
             {
@@ -313,6 +305,8 @@ static class MusicBrainz
             file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, release.Country);
             file.Tag.MusicBrainzReleaseId = tagDiff.Modify("MusicBrainzReleaseId", file.Tag.MusicBrainzReleaseId, release.Id);
 
+            file.Tag.Year = tagDiff.Modify("Year", file.Tag.Year, default);
+
             if (release.Date is not null)
             {
                 string[] v = release.Date.Split('-');
@@ -320,38 +314,80 @@ static class MusicBrainz
                 {
                     file.Tag.Year = tagDiff.Modify("Year", file.Tag.Year, year);
                 }
-            }
-            else
-            {
-                file.Tag.Year = tagDiff.Modify("Year", file.Tag.Year, default);
+                else
+                {
+                    issues?.Add($"Invalid release date format \"{release.Date}\" (check https://musicbrainz.org/release/{release.Id} )");
+                }
             }
 
             file.Tag.Genres = tagDiff.Modify("Genres", file.Tag.Genres, release.Genres is null ? [] : [.. release.Genres.Select(v => v.Name)]);
 
+            file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, null);
+            file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, []);
+            file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, null);
+
             if (release.ReleaseGroup is not null)
             {
-                ReleaseGroup releaseGroup = release.ReleaseGroup;
-
-                file.Tag.MusicBrainzReleaseGroupId = releaseGroup.Id;
-
-                if (file.Tag.Album != releaseGroup.Title)
+                if (release.ReleaseGroup.PrimaryType == "Album")
                 {
-                    file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, releaseGroup.Title);
-                }
+                    ReleaseGroup releaseGroup = release.ReleaseGroup;
 
-                if (releaseGroup.Credits is not null)
-                {
-                    string[] albumArtists = [.. releaseGroup.Credits.Select(v => v.Artist.SortName)];
-                    if (!(file.Tag.AlbumArtists ?? []).SequenceEqual(albumArtists))
+                    file.Tag.MusicBrainzReleaseGroupId = releaseGroup.Id;
+
+                    if (file.Tag.Album != releaseGroup.Title)
                     {
-                        file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, albumArtists);
+                        file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, releaseGroup.Title);
+                        file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, releaseGroup.Id);
                     }
+
+                    if (releaseGroup.Credits is not null)
+                    {
+                        string[] albumArtists = [.. releaseGroup.Credits.Select(v => v.Artist.SortName)];
+                        if (!(file.Tag.AlbumArtists ?? []).SequenceEqual(albumArtists))
+                        {
+                            file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, albumArtists);
+                        }
+                    }
+                }
+                else
+                {
+                    issues?.Add($"Unknown release group type \"{release.ReleaseGroup.PrimaryType}\" (check https://musicbrainz.org/release/{release.Id} )");
+                }
+            }
+
+            file.Tag.TrackCount = tagDiff.Modify("TrackCount", file.Tag.TrackCount, default);
+            file.Tag.Track = tagDiff.Modify("Track", file.Tag.Track, default);
+            file.Tag.MusicBrainzTrackId = tagDiff.Modify("MusicBrainzTrackId", file.Tag.MusicBrainzTrackId, default);
+
+            if (release.Media is null || release.Media.Count == 0)
+            {
+
+            }
+            else if (release.Media.Count == 1)
+            {
+                Medium media = release.Media[0];
+
+                if (media.Tracks is not null)
+                {
+                    file.Tag.TrackCount = tagDiff.Modify("TrackCount", file.Tag.TrackCount, (uint)media.TrackCount);
+
+                    foreach (Track track in media.Tracks)
+                    {
+                        if (track.Recording.Id == recording.Id)
+                        {
+                            file.Tag.Track = tagDiff.Modify("Track", file.Tag.Track, (uint)track.Position);
+                            file.Tag.MusicBrainzTrackId = tagDiff.Modify("MusicBrainzTrackId", file.Tag.MusicBrainzTrackId, track.Id);
+                            goto ok;
+                        }
+                    }
+
+                    issues?.Add($"Track of recording {recording.Id} not found in the media (check https://musicbrainz.org/release/{release.Id} )");
+                ok:;
                 }
             }
             else
             {
-                file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, null);
-                file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, []);
+                issues?.Add($"Release has multiple medias (check https://musicbrainz.org/release/{release.Id} )");
             }
         }
     }

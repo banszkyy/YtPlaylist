@@ -8,6 +8,7 @@ using System.Collections.Immutable;
 using System.Text;
 using Google.Apis.YouTube.v3;
 using System.Diagnostics;
+using Quickenshtein;
 
 namespace YtPlaylist;
 
@@ -18,7 +19,7 @@ sealed class App
     const int MaxRetries = 1;
     const int MaxConcurrency = 1;
     static readonly TimeSpan CacheTime = TimeSpan.FromDays(500);
-    public const string UserAgent = "github.com/BBpezsgo";
+    public const string UserAgent = "github.com/banszkyy";
 
     public async Task Run(CancellationToken cancellationToken = default)
     {
@@ -75,21 +76,24 @@ sealed class App
 
                     if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
 
-                    //if (!Arguments.UseCache)
-                    //{
-                    IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
-                    //    if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
-                    //}
-                    //else if (!File.Exists(Path.Combine(outputPath, ".cache")))
-                    //{
-                    //    localFiles.Clear();
-                    //    IndexFiles(localFiles, unexpectedMusicFiles, outputPath, playlist, cancellationToken);
-                    //    if (!Arguments.DryRun) WriteIndex(localFiles, outputPath);
-                    //}
-                    //else
-                    //{
-                    //    ReadIndex(localFiles, outputPath, playlist);
-                    //}
+                    if (Directory.Exists(outputPath))
+                    {
+                        foreach (string filename in Directory.GetFiles(outputPath, "*.mp3"))
+                        {
+                            if (cancellationToken.IsCancellationRequested) return;
+
+                            TagLib.File file = TagLib.File.Create(filename, TagLib.ReadStyle.PictureLazy);
+
+                            if (!string.IsNullOrWhiteSpace(file.Tag.Description))
+                            {
+                                localFiles.Add(new MusicFile(filename, file.Tag.Description, playlist));
+                            }
+                            else
+                            {
+                                unexpectedMusicFiles.Add(filename);
+                            }
+                        }
+                    }
 
                     playlistFiles.Add(playlist.Id.Value, localFiles);
 
@@ -106,28 +110,37 @@ sealed class App
                     if (cancellationToken.IsCancellationRequested) return;
 
                     string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
-                    List<MusicFile> localFiles = playlistFiles[playlist.Id.Value];
 
-                    await DownloadPlaylist(playlist, youtube, youTubeCache, online, outputPath, localFiles, cancellationToken);
+                    await DownloadPlaylist(playlist, youtube, youTubeCache, online, outputPath, playlistFiles[playlist.Id.Value], cancellationToken);
                 }
             }
         }
 
-        //if (!Arguments.DryRun && Arguments.UseCache)
-        //{
-        //    using (ProgressBar progressBar = new() { MaxWidth = 40 })
-        //    {
-        //        foreach (Playlist playlist in playlists.WithProgress(progressBar))
-        //        {
-        //            if (cancellationToken.IsCancellationRequested) return;
-        //
-        //            string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
-        //            List<MusicFile> localFiles = playlistFiles[playlist.Id.Value];
-        //
-        //            WriteIndex(localFiles, outputPath);
-        //        }
-        //    }
-        //}
+        if (unexpectedMusicFiles.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Unexpected music files:");
+            Console.WriteLine();
+            foreach (string file in unexpectedMusicFiles)
+            {
+                Console.Write("    ");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("-");
+                Console.ResetColor();
+                Console.Write($" {Path.GetFileNameWithoutExtension(file)}");
+                Console.WriteLine();
+            }
+
+            if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
+            {
+                foreach (string file in unexpectedMusicFiles)
+                {
+                    MusicFile.Delete(file);
+                }
+
+                unexpectedMusicFiles.Clear();
+            }
+        }
 
         {
             Dictionary<string, List<PlaylistVideo>> duplicates = [];
@@ -179,7 +192,7 @@ sealed class App
                         if (w.IsEmpty) continue;
 
                         Log.None();
-                        Log.None($"Video: {Ansi.Bold($"{items[0].Author.ChannelTitle} - {items[0].Title}")} ({items[0].Id}) (https://www.youtube.com/watch?v={items[0].Id})");
+                        Log.None($"Video: {Ansi.Bold($"{items[0].Author.ChannelTitle} - {items[0].Title}")} ({items[0].Id}) (check https://www.youtube.com/watch?v={items[0].Id} )");
 
                         string? path = playlistFiles.Values.SelectMany(v => v).FirstOrDefault(v => v.Id == items[0].Id)?.Path;
                         if (path is null)
@@ -246,24 +259,34 @@ sealed class App
 
                             try
                             {
+                                Playlist playlist = w[i];
+                                PlaylistVideo video = items[0];
+
                                 PlaylistItemsResource.ListRequest listRequest = yt.PlaylistItems.List("id,snippet");
-                                listRequest.PlaylistId = w[i].Id;
-                                listRequest.VideoId = items[0].Id;
+                                listRequest.PlaylistId = playlist.Id;
+                                listRequest.VideoId = video.Id;
                                 listRequest.MaxResults = 1;
 
-                                Log.Debug($"Searching for item id in {w[i].Title} ({w[i].Id})");
+                                Log.Debug($"Searching for item id in {video.Title} ({playlist.Id})");
                                 Google.Apis.YouTube.v3.Data.PlaylistItemListResponse listResponse = await listRequest.ExecuteAsync(cancellationToken);
                                 Google.Apis.YouTube.v3.Data.PlaylistItem? item = listResponse.Items?.FirstOrDefault();
 
                                 if (item == null)
                                 {
-                                    Log.Error($"Video {items[0].Author.ChannelTitle} - {items[i].Title} ({items[i].Id}) not found in playlist {w[i].Title} ({w[i].Id}).");
+                                    Log.Error($"Video {items[0].Author.ChannelTitle} - {items[i].Title} ({items[i].Id}) not found in playlist {playlist.Title} ({playlist.Id}).");
                                     continue;
                                 }
 
-                                Log.Debug($"Deleting item from {w[i].Title} ({w[i].Id})");
+                                Log.Debug($"Deleting item from {video.Title} ({playlist.Id})");
                                 PlaylistItemsResource.DeleteRequest deleteRequest = yt.PlaylistItems.Delete(item.Id);
                                 await deleteRequest.ExecuteAsync(cancellationToken);
+
+                                foreach (MusicFile file in playlistFiles[playlist.Id].Where(v => v.Id == video.Id))
+                                {
+                                    MusicFile.Delete(file);
+                                }
+                                playlistFiles[playlist.Id].RemoveAll(v => v.Id == video.Id);
+                                online.Remove(video);
                             }
                             catch (Exception ex)
                             {
@@ -271,45 +294,6 @@ sealed class App
                             }
                         }
                     }
-
-                    //yt.PlaylistItems.Delete()
-
-                    //ImmutableArray<string> all = [.. File.ReadAllLines("/home/bb/Projects/YtPlaylist/backup.txt")];
-                    //await foreach (YouTubePlaylistItem item in YouTubePlaylist.GetItems(yt, "PL3pKDp-F7PPtqyA3Q_F8lpLohgbZnOAiU"))
-                    //{
-                    //    File.AppendAllLines("/home/bb/Projects/YtPlaylist/backup.txt", [item.VideoId ?? string.Empty]);
-                    //}
-
-                    //foreach (string item in all.Skip(193))
-                    //{
-                    //    await YouTubePlaylist.AddItem(yt, "PL3pKDp-F7PPsEeyNmtYYBhM6u6TY_tpx7", item).ConfigureAwait(false);
-                    //}
-                }
-            }
-        }
-
-        if (unexpectedMusicFiles.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"Unexpected music files:");
-            Console.WriteLine();
-            foreach (string file in unexpectedMusicFiles)
-            {
-                Console.Write("    ");
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("-");
-                Console.ResetColor();
-                Console.Write($" {Path.GetFileNameWithoutExtension(file)}");
-                Console.WriteLine();
-            }
-
-            if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
-            {
-                foreach (string file in unexpectedMusicFiles)
-                {
-                    File.Delete(file);
-                    string lyricsFilename = Path.ChangeExtension(file, ".lrc");
-                    if (File.Exists(lyricsFilename)) File.Delete(lyricsFilename);
                 }
             }
         }
@@ -333,28 +317,17 @@ sealed class App
 
             if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
             {
-                HashSet<string> modifiedPlaylists = [];
                 Log.MinorAction("Deleting music files");
                 using (ProgressBar progressBar = new() { MaxWidth = 40 })
                 {
                     foreach (MusicFile file in deleteFiles.WithProgress(progressBar))
                     {
-                        File.Delete(file.Path);
-                        string lyricsFilename = Path.ChangeExtension(file.Path, ".lrc");
-                        if (File.Exists(lyricsFilename)) File.Delete(lyricsFilename);
+                        MusicFile.Delete(file);
 
                         playlistFiles[file.Playlist.Id.Value].RemoveAll(v => v.Id == file.Id);
-                        modifiedPlaylists.Add(file.Playlist.Id.Value);
+                        if (file.Video is not null) online.Remove(file.Video);
                     }
                 }
-
-                //Log.MinorAction("Writing index files");
-                //foreach (string playlistId in modifiedPlaylists)
-                //{
-                //    Playlist playlist = playlists.First(v => v.Id.Value == playlistId);
-                //    string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
-                //    if (!Arguments.DryRun) WriteIndex(playlistFiles[playlistId], outputPath);
-                //}
             }
         }
 
@@ -389,7 +362,7 @@ sealed class App
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
                     tagCache[musicFile.Path] = file.Tag;
 
-                    if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId))
+                    if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId) || true)
                     {
                         string name = Path.GetFileNameWithoutExtension(musicFile.Path);
 
@@ -423,7 +396,18 @@ sealed class App
                         file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, guessedMeta.Title);
                         file.Tag.RemixedBy = tagDiff.Modify("RemixedBy", file.Tag.RemixedBy, guessedMeta.RemixedBy);
 
-                        await MusicBrainz.FetchMetadata(file, tagDiff, musicBrainz, Arguments, cancellationToken);
+                        List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
+
+                        await MusicBrainz.FetchMetadata(file, tagDiff, musicBrainz, Arguments, issues, cancellationToken);
+
+                        if (issues is not null && issues.Count > 0)
+                        {
+                            Log.Warning($"MusicBrainz issues for {name}:");
+                            foreach (string issue in issues)
+                            {
+                                Log.WarningNoprefix(issue);
+                            }
+                        }
 
                         if (tagDiff.Changes.Count > 0)
                         {
@@ -572,56 +556,183 @@ sealed class App
             }
         }
 
+        if (false)
         {
-            Dictionary<string, List<MusicFile>> duplicates = [];
-            ImmutableArray<(MusicFile File, string Meta)> all = [.. playlistFiles.Values.SelectMany(v => v).Select(v =>
+            Log.Section("Checking redundancy");
+
+            static int GetSimilarityDistance(string a, string b)
             {
-                if (v.Video is not null)
+                if (string.Equals(a, b)) return 0;
+                if (string.Equals(a, b, StringComparison.InvariantCultureIgnoreCase)) return 1;
+                return 2 + Levenshtein.GetDistance(a.ToLowerInvariant(), b.ToLowerInvariant());
+            }
+
+            static ImmutableArray<ImmutableArray<string>> GetSimilarStrings(IEnumerable<string> strings, int distance)
+            {
+                HashSet<string> singlePerformers = [];
+                List<HashSet<string>> similarPerformers = [];
+
+                foreach (string performer in strings)
                 {
-                    return (v, MetaGuesser.Guess(v.Video, []).ToString());
+                    int closestPerformerD = int.MaxValue;
+                    string? closestPerformer = null;
+
+                    foreach (string singlePerformer in singlePerformers)
+                    {
+                        int d = GetSimilarityDistance(performer, singlePerformer);
+                        if (d <= closestPerformerD && d > 0)
+                        {
+                            closestPerformer = singlePerformer;
+                            closestPerformerD = d;
+                        }
+                    }
+
+                    if (closestPerformer is not null && closestPerformerD < distance)
+                    {
+                        singlePerformers.Remove(closestPerformer);
+
+                        int bestGroupI = -1;
+                        int bestGroupD = int.MaxValue;
+                        for (int i = 0; i < similarPerformers.Count; i++)
+                        {
+                            int closest = int.MaxValue;
+                            foreach (string v in similarPerformers[i])
+                            {
+                                closest = Math.Min(closest, GetSimilarityDistance(performer, v));
+                                closest = Math.Min(closest, GetSimilarityDistance(closestPerformer, v));
+                            }
+
+                            if (closest < bestGroupD)
+                            {
+                                bestGroupI = i;
+                                bestGroupD = closest;
+                            }
+                        }
+
+                        if (bestGroupD < distance)
+                        {
+                            similarPerformers[bestGroupI].Add(performer);
+                            similarPerformers[bestGroupI].Add(closestPerformer);
+                        }
+                        else
+                        {
+                            similarPerformers.Add([performer, closestPerformer]);
+                        }
+                    }
+                    else
+                    {
+                        int bestGroupI = -1;
+                        int bestGroupD = int.MaxValue;
+                        for (int i = 0; i < similarPerformers.Count; i++)
+                        {
+                            int closest = int.MaxValue;
+                            foreach (string v in similarPerformers[i])
+                            {
+                                closest = Math.Min(closest, GetSimilarityDistance(performer, v));
+                            }
+
+                            if (closest < bestGroupD)
+                            {
+                                bestGroupI = i;
+                                bestGroupD = closest;
+                            }
+                        }
+
+                        if (bestGroupD < distance)
+                        {
+                            similarPerformers[bestGroupI].Add(performer);
+                        }
+                        else
+                        {
+                            singlePerformers.Add(performer);
+                        }
+                    }
                 }
-                else if (tagCache.TryGetValue(v.Path, out TagLib.Tag? tag))
+
+                return [.. similarPerformers.Select(v => v.ToImmutableArray())];
+            }
+
+            ImmutableArray<ImmutableArray<string>> similarPerformers = GetSimilarStrings(playlistFiles.SelectMany(v => v.Value).Select(v => tagCache.TryGetValue(v.Path, out TagLib.Tag? tag) ? tag : null).SelectMany(v => v?.Performers ?? []), 4);
+
+            if (similarPerformers.Length > 0)
+            {
+                Log.Warning($"Similar artists found:");
+                foreach (ImmutableArray<string> v in similarPerformers)
                 {
-                    return (v, $"{string.Join(" & ", tag.Performers)} - {tag.Title}{(!string.IsNullOrEmpty(tag.RemixedBy) ? $"({tag.RemixedBy} Remix)" : null)}");
+                    foreach (string w in v)
+                    {
+                        Log.WarningNoprefix(w);
+                    }
+                    Log.None();
                 }
-                else
-                {
-                    return (v, MetaGuesser.Guess(Path.GetFileNameWithoutExtension(v.Path), []).ToString());
-                }
-            })];
+            }
+        }
+
+        {
+            List<ImmutableArray<MusicFile>> duplicates = [];
+            ImmutableArray<MusicFile> all = [.. playlistFiles.Values.SelectMany(v => v)];
 
             for (int i = 0; i < all.Length; i++)
             {
-                if (duplicates.ContainsKey(all[i].Meta)) continue;
+                MusicFile a = all[i];
+                if (duplicates.SelectMany(v => v).Any(v => v == a)) continue;
+                List<MusicFile> dups = [];
 
                 for (int j = i + 1; j < all.Length; j++)
                 {
-                    if (all[i].Meta.Equals(all[j].Meta))
+                    MusicFile b = all[j];
+
+                    if (a.Video is not null && b.Video is not null
+                        && MetaGuesser.Guess(a.Video) == MetaGuesser.Guess(b.Video))
                     {
-                        if (!duplicates.TryGetValue(all[i].Meta, out List<MusicFile>? dups))
-                        {
-                            dups = duplicates[all[i].Meta] = [all[i].File];
-                        }
-                        dups.Add(all[j].File);
+                        goto dupFound;
                     }
+                    else if (tagCache.TryGetValue(a.Path, out TagLib.Tag? aTag) && tagCache.TryGetValue(b.Path, out TagLib.Tag? bTag)
+                        && aTag.Performers.SequenceEqual(bTag.Performers)
+                        && aTag.Title == bTag.Title
+                        && aTag.RemixedBy == bTag.RemixedBy)
+                    {
+                        goto dupFound;
+                    }
+                    else if (MetaGuesser.Guess(Path.GetFileNameWithoutExtension(a.Path)) == MetaGuesser.Guess(Path.GetFileNameWithoutExtension(b.Path)))
+                    {
+                        goto dupFound;
+                    }
+
+                    continue;
+                dupFound:
+
+                    dups.Add(b);
+                }
+
+                if (dups.Count > 0)
+                {
+                    dups.Insert(0, all[i]);
+                    duplicates.Add([.. dups]);
                 }
             }
 
             if (duplicates.Count > 0)
             {
                 Log.Warning($"Possible duplicated music items found:");
-                foreach ((string meta, List<MusicFile> items) in duplicates)
+                foreach (ImmutableArray<MusicFile> items in duplicates)
                 {
-                    Console.Write("    ");
-                    Console.Write('[');
-                    for (int i = 0; i < items.Count; i++)
+                    foreach (MusicFile item in items)
                     {
-                        if (i > 0) Console.Write(", ");
-                        Console.Write(items[i].Playlist.Title);
+                        Console.Write("    ");
+                        Console.Write('[');
+                        Console.Write(item.Playlist.Title);
+                        Console.Write(']');
+                        if (item.Video is not null)
+                        {
+                            Console.Write($" {item.Video.Author.ChannelTitle} - {item.Video.Title}");
+                        }
+                        else
+                        {
+                            Console.Write($" {Path.GetFileNameWithoutExtension(item.Path)}");
+                        }
+                        Console.WriteLine();
                     }
-                    Console.Write(']');
-                    Console.Write($" {meta}");
-                    Console.WriteLine();
                 }
 
                 if (string.IsNullOrWhiteSpace(Arguments.YouTubeCredentialsPath))
@@ -633,7 +744,7 @@ sealed class App
                     Log.MinorAction("Logging in");
                     YouTubeService yt = await YoutubeServiceFactory.CreateAsync(Arguments.YouTubeCredentialsPath, Path.Combine(Arguments.HttpCachePath, "token_cache"), cancellationToken);
 
-                    foreach ((string meta, List<MusicFile> _items) in duplicates)
+                    foreach (ImmutableArray<MusicFile> _items in duplicates)
                     {
                         ImmutableArray<MusicFile> items = [.. _items.Where(v => v.Video is not null)];
                         if (items.IsEmpty)
@@ -641,9 +752,6 @@ sealed class App
                             Log.Warning($"Something went wrong meow");
                             continue;
                         }
-
-                        Log.None();
-                        Log.None($"Video: {Ansi.Bold(meta)}");
 
                         for (int i = 0; i < items.Length; i++)
                         {
@@ -653,7 +761,7 @@ sealed class App
                             Console.Write(i + 1);
                             Console.ResetColor();
                             Console.Write(" - ");
-                            Console.Write($"[{item.Playlist.Title}] {item.Video!.Author} - {item.Video.Title} (https://www.youtube.com/watch?v={item.Video.Id})");
+                            Console.Write($"[{item.Playlist.Title}] {item.Video!.Author} - {item.Video.Title} (check https://www.youtube.com/watch?v={item.Video.Id} )");
                             Console.WriteLine();
                         }
 
@@ -702,6 +810,13 @@ sealed class App
                                 Log.Debug($"Deleting item from {video.Title} ({video.Id})");
                                 PlaylistItemsResource.DeleteRequest deleteRequest = yt.PlaylistItems.Delete(item.Id);
                                 await deleteRequest.ExecuteAsync(cancellationToken);
+
+                                foreach (MusicFile file in playlistFiles[video.PlaylistId].Where(v => v.Id == video.Id))
+                                {
+                                    MusicFile.Delete(file);
+                                }
+                                playlistFiles[video.PlaylistId].RemoveAll(v => v.Id == video.Id);
+                                online.Remove(video);
                             }
                             catch (Exception ex)
                             {
@@ -716,64 +831,6 @@ sealed class App
         Console.WriteLine();
         Console.WriteLine("Done");
     }
-
-    #region Index
-
-    static void ReadIndex(List<MusicFile> result, string path, Playlist playlist)
-    {
-        //Log.MinorAction("Reading index from file");
-
-        using FileStream file = new(Path.Combine(path, ".cache"), FileMode.Open, FileAccess.Read);
-        using BinaryReader reader = new(file);
-
-        int n = reader.ReadInt32();
-        for (int i = 0; i < n; i++)
-        {
-            string videoId = reader.ReadString();
-            string relativeFilename = reader.ReadString();
-            result.Add(new MusicFile(Path.GetFullPath(relativeFilename, path), videoId, playlist));
-        }
-    }
-
-    static void WriteIndex(List<MusicFile> localFiles, string path)
-    {
-        //Log.MinorAction("Writing index to file");
-
-        using FileStream file = new(Path.Combine(path, ".cache"), FileMode.OpenOrCreate, FileAccess.Write);
-        using BinaryWriter writer = new(file);
-
-        writer.Write(localFiles.Count);
-        foreach (MusicFile musicFile in localFiles)
-        {
-            writer.Write(musicFile.Id);
-            writer.Write(Path.GetRelativePath(path, musicFile.Path));
-        }
-    }
-
-    static void IndexFiles(List<MusicFile> localFiles, List<string> unexpectedMusicFiles, string path, Playlist playlist, CancellationToken cancellationToken = default)
-    {
-        //Log.MinorAction("Indexing files");
-
-        if (!Directory.Exists(path)) return;
-
-        foreach (string filename in Directory.GetFiles(path, "*.mp3"))
-        {
-            if (cancellationToken.IsCancellationRequested) return;
-
-            TagLib.File file = TagLib.File.Create(filename, TagLib.ReadStyle.PictureLazy);
-
-            if (!string.IsNullOrWhiteSpace(file.Tag.Description))
-            {
-                localFiles.Add(new MusicFile(filename, file.Tag.Description, playlist));
-            }
-            else
-            {
-                unexpectedMusicFiles.Add(filename);
-            }
-        }
-    }
-
-    #endregion
 
     #region YouTube
 
@@ -837,7 +894,7 @@ sealed class App
     static string GetFileNameWithoutExtension(PlaylistVideo video)
     {
         MetaGuesser.Meta meta = MetaGuesser.Guess(video, []);
-        return $"{SanitizeFilename(string.Join(" & ", meta.Artists))} - {SanitizeFilename(meta.Title)}";
+        return $"{SanitizeFilename(string.Join(" & ", meta.Artists))} - {SanitizeFilename(meta.Title)}{(meta.RemixedBy is null ? null : $" ({SanitizeFilename(meta.RemixedBy)} Remix)")}";
     }
 
     async Task HandleVideo(YoutubeClient youtube, Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
@@ -846,35 +903,32 @@ sealed class App
         if (musicFile is not null)
         {
             musicFile.Video = video;
-            //Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping (indexed)");
             return;
         }
 
         string filename = Path.Combine(path, $"{GetFileNameWithoutExtension(video)}.mp3");
 
+        if (File.Exists(filename))
+        {
+            localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { Video = video });
+        }
+
         if (Arguments.Download)
         {
-            if (File.Exists(filename))
+            if (musicFile is not null)
             {
-                if (localFiles.Any(v => v.Playlist.Id == playlist.Id))
-                {
-                    Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping entirely");
-                    return;
-                }
-                else
-                {
-                    Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping download");
-                }
+                Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping entirely");
+                return;
             }
             else
             {
                 if (Arguments.DryRun)
                 {
-                    Log.MinorAction($"Should download \e[1m{video.Title}\e[22m");
+                    Log.MinorAction($"Should download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
                 }
                 else
                 {
-                    Log.MinorAction($"Downloading \e[1m{video.Title}\e[22m");
+                    Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
 
                     Exception? downloadException = await RunRetries(
                         (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}"), cancellationToken),
@@ -885,7 +939,7 @@ sealed class App
                     switch (downloadException)
                     {
                         case HttpRequestException v:
-                            Log.Error($"Failed to download \e[1m{video.Title}\e[22m: HTTP {(int)v.StatusCode!} ({v.StatusCode})");
+                            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int)v.StatusCode!} ({v.StatusCode})");
                             return;
                         case not null:
                             Log.Error(downloadException);
@@ -894,12 +948,10 @@ sealed class App
                 }
             }
         }
-        else if (!File.Exists(filename))
+        else if (musicFile is null)
         {
             return;
         }
-
-        localFiles.Add(new MusicFile(filename, video.Id, playlist) { Video = video });
 
         if (!Arguments.DryRun)
         {

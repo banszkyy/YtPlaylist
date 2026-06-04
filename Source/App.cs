@@ -83,10 +83,53 @@ sealed class App
                             if (cancellationToken.IsCancellationRequested) return;
 
                             TagLib.File file = TagLib.File.Create(filename, TagLib.ReadStyle.PictureLazy);
+                            string? videoId = file.Tag.Description;
 
-                            if (!string.IsNullOrWhiteSpace(file.Tag.Description))
+                            if (!string.IsNullOrWhiteSpace(videoId))
                             {
-                                localFiles.Add(new MusicFile(filename, file.Tag.Description, playlist));
+                                localFiles.Add(new MusicFile(filename, videoId, playlist));
+
+                                if (Arguments.RecreateMetadata)
+                                {
+                                    Diff tagDiff = new();
+
+                                    file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, default);
+                                    file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, []);
+                                    file.Tag.BeatsPerMinute = tagDiff.Modify("BeatsPerMinute", file.Tag.BeatsPerMinute, default);
+                                    file.Tag.Composers = tagDiff.Modify("Composers", file.Tag.Composers, []);
+                                    file.Tag.Conductor = tagDiff.Modify("Conductor", file.Tag.Conductor, default);
+                                    file.Tag.Copyright = tagDiff.Modify("Copyright", file.Tag.Copyright, default);
+                                    file.Tag.Disc = tagDiff.Modify("Disc", file.Tag.Disc, default);
+                                    file.Tag.DiscCount = tagDiff.Modify("DiscCount", file.Tag.DiscCount, default);
+                                    file.Tag.Genres = tagDiff.Modify("Genres", file.Tag.Genres, []);
+                                    file.Tag.Grouping = tagDiff.Modify("Grouping", file.Tag.Grouping, default);
+                                    file.Tag.ISRC = tagDiff.Modify("ISRC", file.Tag.ISRC, default);
+                                    file.Tag.MusicBrainzArtistId = tagDiff.Modify("MusicBrainzArtistId", file.Tag.MusicBrainzArtistId, default);
+                                    file.Tag.MusicBrainzDiscId = tagDiff.Modify("MusicBrainzDiscId", file.Tag.MusicBrainzDiscId, default);
+                                    file.Tag.MusicBrainzReleaseArtistId = tagDiff.Modify("MusicBrainzReleaseArtistId", file.Tag.MusicBrainzReleaseArtistId, default);
+                                    file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, default);
+                                    file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, default);
+                                    file.Tag.MusicBrainzReleaseId = tagDiff.Modify("MusicBrainzReleaseId", file.Tag.MusicBrainzReleaseId, default);
+                                    file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, default);
+                                    file.Tag.MusicBrainzReleaseType = tagDiff.Modify("MusicBrainzReleaseType", file.Tag.MusicBrainzReleaseType, default);
+                                    file.Tag.MusicBrainzTrackId = tagDiff.Modify("MusicBrainzTrackId", file.Tag.MusicBrainzTrackId, default);
+                                    file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, []);
+                                    file.Tag.Pictures = tagDiff.Modify("Pictures", file.Tag.Pictures, []);
+                                    file.Tag.Publisher = tagDiff.Modify("Publisher", file.Tag.Publisher, default);
+                                    file.Tag.RemixedBy = tagDiff.Modify("RemixedBy", file.Tag.RemixedBy, default);
+                                    file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, default);
+                                    file.Tag.TrackCount = tagDiff.Modify("TrackCount", file.Tag.TrackCount, default);
+                                    file.Tag.Year = tagDiff.Modify("Year", file.Tag.Year, default);
+
+                                    if (tagDiff.Changes.Count > 0)
+                                    {
+                                        Log.None($"Meta tags changed for \"{Path.GetFileName(filename)}\":");
+                                        tagDiff.Print();
+
+                                        if (!Arguments.DryRun) file.Save();
+                                    }
+                                }
+
                             }
                             else
                             {
@@ -362,7 +405,7 @@ sealed class App
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
                     tagCache[musicFile.Path] = file.Tag;
 
-                    if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId) || true)
+                    if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId))
                     {
                         string name = Path.GetFileNameWithoutExtension(musicFile.Path);
 
@@ -371,7 +414,7 @@ sealed class App
 
                         if (warnings.Count > 0 && !Arguments.IgnoreMetaWarnings)
                         {
-                            Log.Warning($"Failed to guess meta for \"{name}\"");
+                            Log.Warning($"Meta issues for \"{name}\":");
                             StringBuilder arrowsBuilder = new();
                             arrowsBuilder.Append(' ', 26);
                             int i = 0;
@@ -669,46 +712,53 @@ sealed class App
         }
 
         {
+            Log.Section($"Checking duplicates");
+
             List<ImmutableArray<MusicFile>> duplicates = [];
             ImmutableArray<MusicFile> all = [.. playlistFiles.Values.SelectMany(v => v)];
 
-            for (int i = 0; i < all.Length; i++)
+            using (ProgressBar progress = new() { MaxWidth = 40 })
             {
-                MusicFile a = all[i];
-                if (duplicates.SelectMany(v => v).Any(v => v == a)) continue;
-                List<MusicFile> dups = [];
-
-                for (int j = i + 1; j < all.Length; j++)
+                for (int i = 0; i < all.Length; i++)
                 {
-                    MusicFile b = all[j];
+                    progress.Report(i, all.Length);
 
-                    if (a.Video is not null && b.Video is not null
-                        && MetaGuesser.Guess(a.Video) == MetaGuesser.Guess(b.Video))
+                    MusicFile a = all[i];
+                    if (duplicates.SelectMany(v => v).Any(v => v == a)) continue;
+                    List<MusicFile> dups = [];
+
+                    for (int j = i + 1; j < all.Length; j++)
                     {
-                        goto dupFound;
+                        MusicFile b = all[j];
+
+                        if (a.Video is not null && b.Video is not null
+                            && MetaGuesser.Guess(a.Video) == MetaGuesser.Guess(b.Video))
+                        {
+                            goto dupFound;
+                        }
+                        else if (tagCache.TryGetValue(a.Path, out TagLib.Tag? aTag) && tagCache.TryGetValue(b.Path, out TagLib.Tag? bTag)
+                            && aTag.Performers.SequenceEqual(bTag.Performers)
+                            && aTag.Title == bTag.Title
+                            && aTag.RemixedBy == bTag.RemixedBy)
+                        {
+                            goto dupFound;
+                        }
+                        else if (MetaGuesser.Guess(Path.GetFileNameWithoutExtension(a.Path)) == MetaGuesser.Guess(Path.GetFileNameWithoutExtension(b.Path)))
+                        {
+                            goto dupFound;
+                        }
+
+                        continue;
+                    dupFound:
+
+                        dups.Add(b);
                     }
-                    else if (tagCache.TryGetValue(a.Path, out TagLib.Tag? aTag) && tagCache.TryGetValue(b.Path, out TagLib.Tag? bTag)
-                        && aTag.Performers.SequenceEqual(bTag.Performers)
-                        && aTag.Title == bTag.Title
-                        && aTag.RemixedBy == bTag.RemixedBy)
+
+                    if (dups.Count > 0)
                     {
-                        goto dupFound;
+                        dups.Insert(0, all[i]);
+                        duplicates.Add([.. dups]);
                     }
-                    else if (MetaGuesser.Guess(Path.GetFileNameWithoutExtension(a.Path)) == MetaGuesser.Guess(Path.GetFileNameWithoutExtension(b.Path)))
-                    {
-                        goto dupFound;
-                    }
-
-                    continue;
-                dupFound:
-
-                    dups.Add(b);
-                }
-
-                if (dups.Count > 0)
-                {
-                    dups.Insert(0, all[i]);
-                    duplicates.Add([.. dups]);
                 }
             }
 
@@ -903,7 +953,7 @@ sealed class App
         if (musicFile is not null)
         {
             musicFile.Video = video;
-            return;
+            goto meta;
         }
 
         string filename = Path.Combine(path, $"{GetFileNameWithoutExtension(video)}.mp3");
@@ -945,6 +995,8 @@ sealed class App
                             Log.Error(downloadException);
                             return;
                     }
+
+                    localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { Video = video });
                 }
             }
         }
@@ -953,9 +1005,11 @@ sealed class App
             return;
         }
 
-        if (!Arguments.DryRun)
+    meta:
+
+        if (!Arguments.DryRun && musicFile is not null)
         {
-            using TagLib.File file = TagLib.File.Create(filename);
+            using TagLib.File file = TagLib.File.Create(musicFile.Path);
             Diff diff = new();
 
             file.Tag.Description = diff.Modify("Description", file.Tag.Description, video.Id.Value);
@@ -967,11 +1021,10 @@ sealed class App
                     await TagUtils.DownloadCoverImage(file, new Uri(video.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute), "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
                 }
 
-                List<MetaGuesser.Warning> warnings = [];
-                MetaGuesser.Meta meta = MetaGuesser.Guess(video, warnings);
+                MetaGuesser.Meta meta = MetaGuesser.Guess(video);
 
-                file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.Title);
-                file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
+                if (string.IsNullOrEmpty(file.Tag.Title)) file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.Title);
+                if (file.Tag.Performers.IsNullOrEmpty()) file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
             }
 
             if (diff.Changes.Count > 0)

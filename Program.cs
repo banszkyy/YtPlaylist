@@ -98,6 +98,7 @@ static class Program
         string? httpCachePath = null;
         string? youTubeCredentialsPath = null;
         bool ignoreMetaWarnings = false;
+        bool recreateMetadata = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -129,6 +130,9 @@ static class Program
                     break;
                 case "--usecache":
                     useCache = true;
+                    break;
+                case "--resetmeta":
+                    recreateMetadata = true;
                     break;
                 case "--dry":
                     dryRun = true;
@@ -230,6 +234,7 @@ static class Program
                 HttpCachePath = httpCachePath ?? "./cache",
                 IgnoreMetaWarnings = ignoreMetaWarnings,
                 YouTubeCredentialsPath = youTubeCredentialsPath,
+                RecreateMetadata = recreateMetadata,
             },
         }.Run(cancellationTokenSource.Token).ContinueWith(task =>
         {

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using Hqub.MusicBrainz;
 using Hqub.MusicBrainz.Entities;
@@ -6,6 +7,13 @@ namespace YtPlaylist;
 
 static class Extensions
 {
+    public static bool IsEmpty(this IEnumerable objects)
+    {
+        IEnumerator enumerator = objects.GetEnumerator();
+        if (enumerator.MoveNext()) return false;
+        return true;
+    }
+
     public static string TrimStart(this string v, string value, StringComparison comparison = StringComparison.InvariantCultureIgnoreCase)
     {
         return v.StartsWith(value, comparison) ? v[value.Length..] : v;

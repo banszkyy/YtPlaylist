@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using Logger;
+using YtPlaylist;
 
 public class Diff
 {
@@ -114,27 +115,55 @@ public class Diff
                     Console.Write(key);
                     Console.Write(" = ");
                     PrintValue(change.New!);
+                    goto v;
                 }
-                else if (change.New is null)
+
+                if (change.New is null)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.Write("-");
                     Console.ResetColor();
                     Console.Write(" ");
                     Console.Write(key);
+                    goto v;
                 }
-                else
+
+                if (change.Old is IEnumerable oldEnumerable && change.New is IEnumerable newEnumerable
+                   && change.Old is not string && change.New is not string)
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.Write("x");
-                    Console.ResetColor();
-                    Console.Write(" ");
-                    Console.Write(key);
-                    Console.Write(" ");
-                    PrintValue(change.Old);
-                    Console.Write(" -> ");
-                    PrintValue(change.New);
+                    if (oldEnumerable.IsEmpty())
+                    {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.Write("+");
+                        Console.ResetColor();
+                        Console.Write(" ");
+                        Console.Write(key);
+                        Console.Write(" = ");
+                        PrintValue(change.New!);
+                        goto v;
+                    }
+                    else if (newEnumerable.IsEmpty())
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("-");
+                        Console.ResetColor();
+                        Console.Write(" ");
+                        Console.Write(key);
+                        goto v;
+                    }
                 }
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write("x");
+                Console.ResetColor();
+                Console.Write(" ");
+                Console.Write(key);
+                Console.Write(" ");
+                PrintValue(change.Old);
+                Console.Write(" -> ");
+                PrintValue(change.New);
+
+            v:
 
                 Console.WriteLine();
             }

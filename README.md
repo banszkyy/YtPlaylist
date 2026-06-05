@@ -4,10 +4,43 @@
 
 Downloads and synchronizes YouTube playlists as MP3 files so you can listen to them offline!!!
 
-## Build Dependencies
+## Features
 
-- [BBpezsgo/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
-- [BBpezsgo/Logger](https://github.com/banszkyy/Logger)
+### Synchronizing
+
+- Downloads all missing music files that are in your playlist
+- Deletes all music files that you deleted from the playlist
+- TODO: Move music files that you moved between your playlists
+
+> [!NOTE]
+> It will create subdirectories for each YouTube playlist.
+
+> [!TIP]
+> You can rename the MP3 files (together with the .lrc files), because the youtube video's id is embedded into the MP3 metadata.
+
+> [!TIP]
+> Until it doesn't find the MusicBrainz entry for the music, it tries to guess the artist and title from the MP3 file name.
+> Because of this, you might have to fix filenames. The best filename for a music is `Artist - Title.mp3`.
+
+### Metadata
+
+- First, it fetches the YouTube video's metadata and sets the MP3 file's title, artist and album cover metadata.
+- Second, it searches for the music on [MusicBrainz](https://musicbrainz.org/), and sets all possible MP3 metadata tags possible.
+
+### Lyrics
+
+- It searches for the lyrics on [LrcLib](https://lrclib.net/), and embeds it into the MP3 metadata, and also into a .lrc file.
+
+### Duplicate detection
+
+- Warns you if you have the same music in multiple different playlists.
+- Warns you if you have very extremely suspiciously similar music files.
+
+If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
+
+## Would you use this?
+
+This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!
 
 ## Runtime Dependencies
 
@@ -35,40 +68,7 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 >
 > And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
 
-## Features
+## Build Dependencies
 
-### Synchronizing
-
-- Downloads all missing music files that are in your playlist
-- Deletes all music files that you deleted from the playlist
-- TODO: Move music files that you moved between your playlists
-
-> [!NOTE]
-> It will create subdirectories for each YouTube playlist.
-
-> [!TIP]
-> You can rename the MP3 files (together with the .lrc files), because the youtube video's id is embedded into the MP3 metadata.
-
-> [!TIP]
-> Until it doesn't find the MusicBrainz entry for the music, it tries to guess the artist and title from the MP3 file name.
-> Because of this, you might have to fix filenames. The best filename for a music is `Artist - Title.mp3`.
-
-### Metadata
-
-- First, it fetches the YouTube video's metadata and sets the MP3 file's title, artist and album cover metadata.
-- Second, it searches for the music *release* on [MusicBrainz](https://musicbrainz.org/), and sets all possible MP3 metadata tags possible.
-
-### Lyrics
-
-- It searches for the lyrics on [LrcLib](https://lrclib.net/), and embeds it into the MP3 metadata, and also into a .lrc file.
-
-### Duplicate detection
-
-- Warns you if you have the same music in multiple different playlists.
-- Warns you if you have very extremely suspiciously similar music files.
-
-If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
-
-## Would you use this?
-
-This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!
+- [BBpezsgo/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
+- [BBpezsgo/Logger](https://github.com/banszkyy/Logger)

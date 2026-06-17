@@ -20,6 +20,7 @@ sealed class App
     const int MaxConcurrency = 1;
     static readonly TimeSpan CacheTime = TimeSpan.FromDays(500);
     public const string UserAgent = "github.com/banszkyy";
+    ImmutableArray<KeyValuePair<string, string>> _confusables = [];
 
     public async Task Run(CancellationToken cancellationToken = default)
     {
@@ -35,6 +36,8 @@ sealed class App
         Dictionary<string, TagLib.Tag> tagCache = [];
 
         YouTubeCache? youTubeCache = new(Arguments.HttpCachePath);
+
+        _confusables = await Confusables.Fetch(Arguments);
 
         Log.Section($"Synchronizing playlists");
 
@@ -402,19 +405,52 @@ sealed class App
 
                     string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
 
+                    string name = Path.GetFileNameWithoutExtension(musicFile.Path);
+                    string? originalFilename = musicFile.Video is not null ? GetFileNameWithoutExtension(musicFile.Video) : null;
+
+                    //if (musicFile.Video is not null
+                    //    && originalFilename is not null
+                    //    && !originalFilename.Equals(name, StringComparison.Ordinal))
+                    //{
+                    //    string originalPath = Path.Combine(Path.GetDirectoryName(musicFile.Path)!, originalFilename + ".mp3");
+                    //    if (!File.Exists(originalPath))
+                    //    {
+                    //        if (Arguments.DryRun)
+                    //        {
+                    //            GetFileNameWithoutExtension(musicFile.Video);
+                    //            Log.MinorAction($"Would rename \"{name}\" to \"{originalFilename}\"");
+                    //            name = originalFilename;
+                    //        }
+                    //        else
+                    //        {
+                    //            Log.MinorAction($"Renamed \"{name}\" to \"{originalFilename}\"");
+                    //            File.Move(musicFile.Path, originalPath);
+                    //            name = originalFilename;
+                    //            musicFile.Path = originalPath;
+                    //        }
+                    //    }
+                    //}
+
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
                     tagCache[musicFile.Path] = file.Tag;
 
                     if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId))
                     {
-                        string name = Path.GetFileNameWithoutExtension(musicFile.Path);
-
                         List<MetaGuesser.Warning> warnings = [];
-                        MetaGuesser.Meta guessedMeta = MetaGuesser.Guess(name, warnings);
+                        MetaGuesser.Meta guessedMeta;
+
+                        if (musicFile.Video is not null)
+                        {
+                            guessedMeta = MetaGuesser.Guess(musicFile.Video, warnings);
+                        }
+                        else
+                        {
+                            guessedMeta = MetaGuesser.Guess(name, warnings);
+                        }
 
                         if (warnings.Count > 0 && !Arguments.IgnoreMetaWarnings)
                         {
-                            Log.Warning($"Meta issues for \"{name}\":");
+                            Log.Warning($"Meta issues for \"{Path.GetFileNameWithoutExtension(musicFile.Path)}\":");
                             StringBuilder arrowsBuilder = new();
                             arrowsBuilder.Append(' ', 26);
                             int i = 0;
@@ -435,17 +471,17 @@ sealed class App
 
                         Diff tagDiff = new();
 
-                        file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, guessedMeta.RemixedBy is not null ? [.. guessedMeta.Artists, guessedMeta.RemixedBy] : [.. guessedMeta.Artists]);
-                        file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, guessedMeta.Title);
-                        file.Tag.RemixedBy = tagDiff.Modify("RemixedBy", file.Tag.RemixedBy, guessedMeta.RemixedBy);
+                        //file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, guessedMeta.RemixedBy is not null ? [.. guessedMeta.Artists, guessedMeta.RemixedBy] : [.. guessedMeta.Artists]);
+                        //file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, guessedMeta.GetTitleText());
+                        //file.Tag.RemixedBy = tagDiff.Modify("RemixedBy", file.Tag.RemixedBy, guessedMeta.RemixedBy);
 
                         List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
 
-                        await MusicBrainz.FetchMetadata(file, tagDiff, musicBrainz, Arguments, issues, cancellationToken);
+                        await MusicBrainz.FetchMetadata(file, guessedMeta, tagDiff, musicBrainz, Arguments, issues, cancellationToken);
 
                         if (issues is not null && issues.Count > 0)
                         {
-                            Log.Warning($"MusicBrainz issues for {name}:");
+                            Log.Warning($"MusicBrainz issues for {guessedMeta}:");
                             foreach (string issue in issues)
                             {
                                 Log.WarningNoprefix(issue);
@@ -454,7 +490,7 @@ sealed class App
 
                         if (tagDiff.Changes.Count > 0)
                         {
-                            Log.None($"Meta tags changed for \"{name}\":");
+                            Log.None($"Meta tags changed for {guessedMeta}:");
                             tagDiff.Print();
 
                             if (!Arguments.DryRun) file.Save();
@@ -479,12 +515,15 @@ sealed class App
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     if (!File.Exists(musicFile.Path)) continue;
-                    if (File.Exists(Path.ChangeExtension(musicFile.Path, ".lrc"))) continue;
 
-                    string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
+                    string lyricsPath = Path.ChangeExtension(musicFile.Path, ".lrc");
+
+                    if (File.Exists(lyricsPath)) continue;
 
                     using TagLib.File file = TagLib.File.Create(musicFile.Path);
                     tagCache[musicFile.Path] = file.Tag;
+
+                    string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
 
                     if (string.IsNullOrEmpty(file.Tag.Title)
                         || file.Tag.Performers is null
@@ -497,58 +536,24 @@ sealed class App
                         if (lyrics is null) continue;
                         if (lyrics.SyncedLyrics is null && lyrics.PlainLyrics is null) continue;
 
+                        TimeSpan lyricsDuration = TimeSpan.FromSeconds(lyrics.Duration);
+                        TimeSpan? videoDuration = musicFile.Video?.Duration;
+
+                        if (videoDuration.HasValue)
+                        {
+                            if (Math.Abs(lyricsDuration.TotalMilliseconds - videoDuration.Value.TotalMilliseconds) > 1000)
+                            {
+                                Log.Warning($"Duration mismatches: Video is {videoDuration.Value} Lyrics is {lyricsDuration}");
+                            }
+                        }
+
                         TagLib.Id3v2.SynchedText[]? synchedTexts = null;
                         string? unsyncedText = null;
 
                         if (lyrics.SyncedLyrics is not null)
                         {
-                            string[] lines = lyrics.SyncedLyrics.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                            synchedTexts = new TagLib.Id3v2.SynchedText[lines.Length];
-                            for (int i = 0; i < lines.Length; i++)
-                            {
-                                string line = lines[i];
-
-                                if (!line.StartsWith('['))
-                                {
-                                    Log.Error($"Invalid lyrics");
-                                    goto skipFile;
-                                }
-
-                                int j = line.IndexOf(']');
-
-                                if (j == -1)
-                                {
-                                    Log.Error($"Invalid lyrics");
-                                    goto skipFile;
-                                }
-
-                                string time = line[1..j];
-                                line = line[(j + 1)..].TrimStart();
-
-                                string[] timeSegments = time.Split(':');
-                                if (timeSegments.Length != 2)
-                                {
-                                    Log.Error($"Invalid lyrics");
-                                    goto skipFile;
-                                }
-
-                                if (!int.TryParse(timeSegments[0], out int minute))
-                                {
-                                    Log.Error($"Invalid lyrics");
-                                    goto skipFile;
-                                }
-
-                                if (!double.TryParse(timeSegments[1], out double second))
-                                {
-                                    Log.Error($"Invalid lyrics");
-                                    goto skipFile;
-                                }
-
-                                synchedTexts[i] = new TagLib.Id3v2.SynchedText(
-                                    (long)TimeSpan.FromSeconds(second + (minute * 60d)).TotalMilliseconds,
-                                    line
-                                );
-                            }
+                            synchedTexts = Lyrics.Parse(lyrics.SyncedLyrics);
+                            if (synchedTexts is null) continue;
                         }
 
                         if (lyrics.PlainLyrics is not null)
@@ -582,10 +587,10 @@ sealed class App
                             tag.ReplaceFrame(TagLib.Id3v2.UnsynchronisedLyricsFrame.Get(tag, unsynchronisedLyricsFrame.Description, unsynchronisedLyricsFrame.Language, true), unsynchronisedLyricsFrame);
                         }
 
-                        File.WriteAllText(Path.ChangeExtension(musicFile.Path, ".lrc"), lyrics.SyncedLyrics ?? unsyncedText);
+                        File.WriteAllText(lyricsPath, lyrics.SyncedLyrics ?? unsyncedText);
 
                         file.Save();
-                        Log.None($"Lyrics added ({lyrics.ArtistName} - {lyrics.TrackName} [{lyrics.AlbumName}] {TimeSpan.FromSeconds(lyrics.Duration)})");
+                        Log.None($"Lyrics added ({lyrics.ArtistName} - {lyrics.TrackName} [{lyrics.AlbumName}] {lyricsDuration})");
                     }
                     catch (Exception ex)
                     {
@@ -593,8 +598,6 @@ sealed class App
                         Log.Error(ex);
                         continue;
                     }
-
-                skipFile:;
                 }
             }
         }
@@ -941,10 +944,10 @@ sealed class App
         }
     }
 
-    static string GetFileNameWithoutExtension(PlaylistVideo video)
+    string GetFileNameWithoutExtension(PlaylistVideo video)
     {
         MetaGuesser.Meta meta = MetaGuesser.Guess(video, []);
-        return $"{SanitizeFilename(string.Join(" & ", meta.Artists))} - {SanitizeFilename(meta.Title)}{(meta.RemixedBy is null ? null : $" ({SanitizeFilename(meta.RemixedBy)} Remix)")}";
+        return SanitizeFilename($"{meta.GetArtistsText()} - {meta.GetTitleText()}");
     }
 
     async Task HandleVideo(YoutubeClient youtube, Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
@@ -1023,7 +1026,7 @@ sealed class App
 
                 MetaGuesser.Meta meta = MetaGuesser.Guess(video);
 
-                if (string.IsNullOrEmpty(file.Tag.Title)) file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.Title);
+                if (string.IsNullOrEmpty(file.Tag.Title)) file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.GetTitleText());
                 if (file.Tag.Performers.IsNullOrEmpty()) file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
             }
 
@@ -1071,26 +1074,39 @@ sealed class App
         return cancellationToken.IsCancellationRequested ? null : lastException;
     }
 
-    static string SanitizeFilename(string filename)
+    string SanitizeFilename(string filename)
     {
+        static bool IsOk(char c)
+        {
+            return char.IsAscii(c)
+                || char.GetUnicodeCategory(c)
+                is System.Globalization.UnicodeCategory.LowercaseLetter
+                or System.Globalization.UnicodeCategory.UppercaseLetter
+                or System.Globalization.UnicodeCategory.TitlecaseLetter
+                or System.Globalization.UnicodeCategory.ModifierLetter
+                or System.Globalization.UnicodeCategory.OtherLetter
+                or System.Globalization.UnicodeCategory.LetterNumber;
+        }
+
+        foreach ((string a, string b) in _confusables)
+        {
+            if (a.All(IsOk)) continue;
+            filename = filename.Replace(a, b);
+        }
+
         char[] result = filename.ToCharArray();
         for (int i = 0; i < result.Length; i++)
         {
             ref char c = ref result[i];
+
             c = c switch
             {
                 '/' or '\\' or '"' or '\'' => '_',
                 '\n' or '\r' or '\t' => ' ',
                 _ => c,
             };
-            if (!char.IsAscii(c)
-                && char.GetUnicodeCategory(c)
-                    is not System.Globalization.UnicodeCategory.LowercaseLetter
-                    and not System.Globalization.UnicodeCategory.UppercaseLetter
-                    and not System.Globalization.UnicodeCategory.TitlecaseLetter
-                    and not System.Globalization.UnicodeCategory.ModifierLetter
-                    and not System.Globalization.UnicodeCategory.OtherLetter
-                    and not System.Globalization.UnicodeCategory.LetterNumber)
+
+            if (!IsOk(c))
             {
                 c = '?';
             }

@@ -9,6 +9,8 @@ public class Diff
     {
         public readonly object? Old = old;
         public readonly object? New = @new;
+
+        public override string ToString() => $"Change({Old ?? "null"} --> {New ?? "null"})";
     }
 
     readonly Dictionary<string, Change> _changes = [];

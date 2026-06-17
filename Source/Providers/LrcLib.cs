@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -79,7 +77,7 @@ sealed class LrcLib : IDisposable
 
         if (status == HttpStatusCode.NotFound) return null;
 
-        if (!((int)status >= 200 && (int)status <= 299))
+        if ((int)status is not (>= 200 and <= 299))
         {
             throw new HttpRequestException(
                 $"Response status code does not indicate success: {(int)status}",

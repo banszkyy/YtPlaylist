@@ -12,10 +12,10 @@ public static class MetaGuesser
         public readonly string Title = title;
         public readonly string? RemixedBy = remixedBy;
 
-        public bool Equals(Meta other)
-        {
-            return Equals(other, StringComparison.Ordinal);
-        }
+        public string GetArtistsText() => string.Join(" & ", Artists);
+        public string GetTitleText() => $"{Title}{(RemixedBy is null ? null : $" ({RemixedBy} remix)")}";
+
+        public bool Equals(Meta other) => Equals(other, StringComparison.Ordinal);
 
         public bool Equals(Meta other, StringComparison stringComparisonType)
         {
@@ -29,30 +29,14 @@ public static class MetaGuesser
             return true;
         }
 
-        public override bool Equals(object? obj)
-        {
-            return obj is Meta other && Equals(other);
-        }
+        public override bool Equals(object? obj) => obj is Meta other && Equals(other);
 
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(Artists, Title, RemixedBy);
-        }
+        public override int GetHashCode() => HashCode.Combine(Artists, Title, RemixedBy);
 
-        public static bool operator ==(Meta left, Meta right)
-        {
-            return left.Equals(right);
-        }
+        public static bool operator ==(Meta left, Meta right) => left.Equals(right);
+        public static bool operator !=(Meta left, Meta right) => !(left == right);
 
-        public static bool operator !=(Meta left, Meta right)
-        {
-            return !(left == right);
-        }
-
-        public override string ToString()
-        {
-            return $"{string.Join(" & ", Artists)} - {Title}{(!string.IsNullOrEmpty(RemixedBy) ? $" ({RemixedBy} Remix)" : "")}";
-        }
+        public override string ToString() => $"{string.Join(" & ", Artists)} - {Title}{(!string.IsNullOrEmpty(RemixedBy) ? $" ({RemixedBy} remix)" : "")}";
     }
 
     static readonly FrozenDictionary<char, char> BracketPairs = new Dictionary<char, char>()
@@ -133,10 +117,14 @@ public static class MetaGuesser
 
     public static Meta Guess(PlaylistVideo video, List<Warning>? warnings = null)
     {
-        ReadOnlySpan<char> artist = video.Author.ChannelTitle;
-        ReadOnlySpan<char> title = video.Title;
+        ReadOnlySpan<char> artist = video.Author.ChannelTitle.Trim();
+        ReadOnlySpan<char> title = video.Title.Trim();
 
-        artist = artist.TrimEnd(" - Topic").TrimEnd();
+        const string TopicSuffix = " - Topic";
+        if (artist.EndsWith(TopicSuffix))
+        {
+            artist = artist[..^TopicSuffix.Length].TrimEnd();
+        }
 
         if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
         {

@@ -180,16 +180,10 @@ static class MusicBrainz
         return v;
     }
 
-    public static async Task FetchMetadata(TagLib.File file, Diff tagDiff, MusicBrainzClient musicBrainz, AppArguments appArguments, List<string>? issues, CancellationToken cancellationToken)
+    public static async Task FetchMetadata(TagLib.File file, MetaGuesser.Meta meta, Diff tagDiff, MusicBrainzClient musicBrainz, AppArguments appArguments, List<string>? issues, CancellationToken cancellationToken)
     {
-        string? title = FixMetaString(file.Tag.Title);
-        string[]? artists = [.. (file.Tag.Performers ?? []).Select(FixMetaString)!];
-
-        if (string.IsNullOrEmpty(title) || artists.Length == 0)
-        {
-            issues?.Add($"Empty file metadata (title and artists are empty)");
-            return;
-        }
+        string title = FixMetaString(meta.Title);
+        ImmutableArray<string> artists = [.. meta.Artists.Select(FixMetaString)!];
 
         Recording? recording = null;
 
@@ -197,28 +191,9 @@ static class MusicBrainz
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (file.Tag.RemixedBy is not null && file.Tag.RemixedBy.Contains(artist, StringComparison.InvariantCultureIgnoreCase)) continue;
+            if (meta.RemixedBy is not null && meta.RemixedBy.Contains(artist, StringComparison.InvariantCultureIgnoreCase)) continue;
 
-            List<string> searchIssues = [];
-            recording = await LookupRecording(musicBrainz, artist, file.Tag.Title, file.Tag.RemixedBy, issues, cancellationToken);
-
-            if (recording is null)
-            {
-                searchIssues.Clear();
-
-                Artist? artist_ = await LookupArtist(musicBrainz, artist, searchIssues, cancellationToken);
-
-                if (artist_ is not null)
-                {
-                    recording = await LookupRecording(musicBrainz, artist_, file.Tag.Title, issues, cancellationToken);
-                }
-            }
-
-            if (recording is null)
-            {
-                issues?.AddRange(searchIssues);
-                continue;
-            }
+            recording = await LookupRecording(musicBrainz, artist, meta.Title, meta.RemixedBy, issues, cancellationToken);
 
             break;
         }

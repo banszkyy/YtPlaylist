@@ -602,6 +602,33 @@ sealed class App
             }
         }
 
+        {
+            Log.Section($"Checking lyrics");
+
+            foreach (Playlist playlist in playlists)
+            {
+                string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
+
+                if (!Directory.Exists(outputPath)) continue; ;
+
+                foreach (string filename in Directory.GetFiles(outputPath, "*.lrc"))
+                {
+                    if (cancellationToken.IsCancellationRequested) return;
+                    string musicPath = Path.ChangeExtension(filename, ".mp3");
+                    if (File.Exists(musicPath)) continue;
+                    if (Arguments.DryRun)
+                    {
+                        Log.MinorAction($"Would delete {filename}");
+                    }
+                    else
+                    {
+                        Log.MinorAction($"Deleting {filename}");
+                        File.Delete(filename);
+                    }
+                }
+            }
+        }
+
         if (false)
         {
             Log.Section("Checking redundancy");

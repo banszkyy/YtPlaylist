@@ -46,7 +46,6 @@ This program fulfills my needs, so no additional crazy features are planned, but
 
 - `ffmpeg`
 - `yt-dlp`
-- `ffplay` (optional, only for previewing music)
 
 ## Arguments
 

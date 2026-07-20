@@ -16,11 +16,7 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 > It will create subdirectories for each YouTube playlist.
 
 > [!TIP]
-> You can rename the MP3 files (together with the .lrc files), because the youtube video's id is embedded into the MP3 metadata.
-
-> [!TIP]
-> Until it doesn't find the MusicBrainz entry for the music, it tries to guess the artist and title from the MP3 file name.
-> Because of this, you might have to fix filenames. The best filename for a music is `Artist - Title.mp3`.
+> You can freely rename the MP3 files (together with the .lrc files), because the YouTube video's id is embedded into the MP3 metadata and the metadata guessing is done on the YouTube video.
 
 ### Metadata
 

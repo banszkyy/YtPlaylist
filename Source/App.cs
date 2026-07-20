@@ -9,6 +9,7 @@ using System.Text;
 using Google.Apis.YouTube.v3;
 using System.Diagnostics;
 using Quickenshtein;
+using FFMPEG.Probe;
 
 namespace YtPlaylist;
 
@@ -21,6 +22,7 @@ sealed class App
     static readonly TimeSpan CacheTime = TimeSpan.FromDays(500);
     public const string UserAgent = "github.com/banszkyy";
     ImmutableArray<KeyValuePair<string, string>> _confusables = [];
+    readonly List<Change> Changes = [];
 
     public async Task Run(CancellationToken cancellationToken = default)
     {
@@ -330,6 +332,7 @@ sealed class App
                                 foreach (MusicFile file in playlistFiles[playlist.Id].Where(v => v.Id == video.Id))
                                 {
                                     MusicFile.Delete(file);
+                                    Changes.Add(new(file, ChangeType.Delete));
                                 }
                                 playlistFiles[playlist.Id].RemoveAll(v => v.Id == video.Id);
                                 online.Remove(video);
@@ -369,6 +372,7 @@ sealed class App
                     foreach (MusicFile file in deleteFiles.WithProgress(progressBar))
                     {
                         MusicFile.Delete(file);
+                        Changes.Add(new(file, ChangeType.Delete));
 
                         playlistFiles[file.Playlist.Id.Value].RemoveAll(v => v.Id == file.Id);
                         if (file.Video is not null) online.Remove(file.Video);
@@ -436,7 +440,7 @@ sealed class App
 
                     if (string.IsNullOrEmpty(file.Tag.MusicBrainzReleaseId))
                     {
-                        List<MetaGuesser.Warning> warnings = [];
+                        List<MetaGuesser.Warning>? warnings = Arguments.IgnoreMetaWarnings ? null : [];
                         MetaGuesser.Meta guessedMeta;
 
                         if (musicFile.Video is not null)
@@ -448,7 +452,7 @@ sealed class App
                             guessedMeta = MetaGuesser.Guess(name, warnings);
                         }
 
-                        if (warnings.Count > 0 && !Arguments.IgnoreMetaWarnings)
+                        if (warnings is not null && warnings.Count > 0)
                         {
                             Log.Warning($"Meta issues for \"{Path.GetFileNameWithoutExtension(musicFile.Path)}\":");
                             StringBuilder arrowsBuilder = new();
@@ -477,7 +481,7 @@ sealed class App
 
                         List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
 
-                        await MusicBrainz.FetchMetadata(file, guessedMeta, tagDiff, musicBrainz, Arguments, issues, cancellationToken);
+                        await MusicBrainz.FetchMetadata(file, guessedMeta, tagDiff, musicBrainz, issues, cancellationToken);
 
                         if (issues is not null && issues.Count > 0)
                         {
@@ -492,6 +496,7 @@ sealed class App
                         {
                             Log.None($"Meta tags changed for {guessedMeta}:");
                             tagDiff.Print();
+                            Changes.Add(new(musicFile, ChangeType.Modify));
 
                             if (!Arguments.DryRun) file.Save();
                         }
@@ -591,6 +596,8 @@ sealed class App
 
                         file.Save();
                         Log.None($"Lyrics added ({lyrics.ArtistName} - {lyrics.TrackName} [{lyrics.AlbumName}] {lyricsDuration})");
+
+                        Changes.Add(new(musicFile, ChangeType.Modify));
                     }
                     catch (Exception ex)
                     {
@@ -629,7 +636,7 @@ sealed class App
             }
         }
 
-        if (false)
+        if (Arguments.CheckRedundancy)
         {
             Log.Section("Checking redundancy");
 
@@ -741,6 +748,7 @@ sealed class App
             }
         }
 
+        if (Arguments.CheckDuplicates)
         {
             Log.Section($"Checking duplicates");
 
@@ -894,6 +902,7 @@ sealed class App
                                 foreach (MusicFile file in playlistFiles[video.PlaylistId].Where(v => v.Id == video.Id))
                                 {
                                     MusicFile.Delete(file);
+                                    Changes.Add(new(file, ChangeType.Delete));
                                 }
                                 playlistFiles[video.PlaylistId].RemoveAll(v => v.Id == video.Id);
                                 online.Remove(video);
@@ -906,6 +915,278 @@ sealed class App
                     }
                 }
             }
+        }
+
+        if (Arguments.RegenerateAudicousPlaylists)
+        {
+            Log.Section($"Regenerating Audacious playlist files");
+
+            const string PlaylistsDirecotry = "/home/bb/.config/audacious/playlists";
+
+            List<AudaciousPlaylist> audaciousPlaylists = [];
+
+            Log.MajorAction($"Reading playlists");
+            using (ProgressBar progress = new() { MaxWidth = 20 })
+            {
+                foreach (string item in Directory.GetFiles(PlaylistsDirecotry, "*.audpl").WithProgress(progress))
+                {
+                    using FileStream file = File.OpenRead(item);
+                    using StreamReader reader = new(file);
+                    AudaciousPlaylist audaciousPlaylist = new()
+                    {
+                        Path = item,
+                    };
+                    audaciousPlaylist.ReadFrom(reader);
+                    audaciousPlaylists.Add(audaciousPlaylist);
+                }
+            }
+
+            Log.MajorAction($"Deleting nonexistent playlists");
+            for (int i = 0; i < audaciousPlaylists.Count; i++)
+            {
+                if (!playlists.Any(v => v.Title == audaciousPlaylists[i].Title))
+                {
+                    Log.MinorAction($"Deleting {Path.GetFileName(audaciousPlaylists[i].Path)}");
+                    File.Delete(audaciousPlaylists[i].Path);
+                    audaciousPlaylists.RemoveAt(i--);
+                }
+            }
+
+            Log.MajorAction($"Generating playlists");
+            foreach ((string playlistId, List<MusicFile> items) in playlistFiles.OrderBy(v => v.Key).ToArray())
+            {
+                Playlist playlist = playlists.First(v => v.Id == playlistId);
+
+                AudaciousPlaylist? audaciousPlaylist = audaciousPlaylists.FirstOrDefault(v => v.Title == playlist.Title);
+                if (audaciousPlaylist is null)
+                {
+                    audaciousPlaylist = new()
+                    {
+                        Path = Path.Combine(PlaylistsDirecotry, $"{Enumerable.Range(0, 1000).First(v => !audaciousPlaylists.Any(w => int.Parse(Path.GetFileNameWithoutExtension(w.Path)) == v))}.audpl"),
+                        Title = playlist.Title,
+                    };
+                    audaciousPlaylists.Add(audaciousPlaylist);
+                }
+
+                for (int i = 0; i < audaciousPlaylist.Items.Count; i++)
+                {
+                    if (!items.Any(v => v.Path == audaciousPlaylist.Items[i].Uri.LocalPath))
+                    {
+                        audaciousPlaylist.Items.RemoveAt(i--);
+                    }
+                }
+
+                using (ProgressBar progress = new() { MaxWidth = 20 })
+                {
+                    foreach (MusicFile item in items.WithProgress(progress))
+                    {
+                        AudaciousPlaylistItem? audaciousPlaylistItem = audaciousPlaylist.Items.FirstOrDefault(v => v.Uri.LocalPath == item.Path);
+
+                        if (audaciousPlaylistItem is null)
+                        {
+                            Root? ffprobeRes = await FFProbe.Probe(item.Path, cancellationToken);
+                            if (ffprobeRes is null) continue;
+
+                            FFMPEG.Probe.Stream? stream = ffprobeRes.Streams?.FirstOrDefault(v => v.CodecType == "audio");
+
+                            if (stream is null)
+                            {
+                                Log.Error($"No audio stream found");
+                                continue;
+                            }
+
+                            if (stream.BitRate is null)
+                            {
+                                Log.Error($"BitRate is missing");
+                                continue;
+                            }
+
+                            if (!int.TryParse(stream.BitRate, out int bitRate))
+                            {
+                                Log.Error($"Invalid BitRate");
+                                continue;
+                            }
+
+                            if (!stream.Channels.HasValue)
+                            {
+                                Log.Error($"Channels is missing");
+                                continue;
+                            }
+
+                            if (stream.CodecName is null)
+                            {
+                                Log.Error($"CodecName is missing");
+                                continue;
+                            }
+
+                            string? codec = stream.CodecName switch
+                            {
+                                "mp3" => "MPEG-1 layer 3",
+                                _ => null,
+                            };
+
+                            if (codec is null)
+                            {
+                                Log.Error($"Invalid CodecName");
+                                continue;
+                            }
+
+                            if (stream.Duration is null)
+                            {
+                                Log.Error($"Duration is missing");
+                                continue;
+                            }
+
+                            if (!double.TryParse(stream.Duration, out double duration))
+                            {
+                                Log.Error($"Invalid Duration");
+                                continue;
+                            }
+
+                            if (stream.ChannelLayout is null)
+                            {
+                                Log.Error($"ChannelLayout is missing");
+                                continue;
+                            }
+
+                            string? channelLayout = stream.ChannelLayout switch
+                            {
+                                "stereo" => "Stereo",
+                                "mono" => "Mono",
+                                _ => null,
+                            };
+
+                            if (channelLayout is null)
+                            {
+                                Log.Error($"Invalid ChannelLayout");
+                                continue;
+                            }
+
+                            if (stream.SampleRate is null)
+                            {
+                                Log.Error($"SampleRate is missing");
+                                continue;
+                            }
+
+                            if (!int.TryParse(stream.SampleRate, out int sampleRate))
+                            {
+                                Log.Error($"Invalid SampleRate");
+                                continue;
+                            }
+
+                            audaciousPlaylistItem = new AudaciousPlaylistItem()
+                            {
+                                Uri = new Uri(item.Path, UriKind.Absolute),
+                                FileCreated = ((DateTimeOffset)File.GetCreationTime(item.Path)).ToUnixTimeSeconds(),
+                                FileModified = ((DateTimeOffset)File.GetLastWriteTime(item.Path)).ToUnixTimeSeconds(),
+
+                                Artist = string.Empty,
+                                Title = string.Empty,
+
+                                Bitrate = bitRate / 1000,
+                                Channels = stream.Channels.Value,
+                                Codec = codec,
+                                Length = (long)(duration * 1000),
+                                Quality = $"{channelLayout}, {sampleRate} Hz",
+                            };
+                        }
+
+                        if (tagCache.TryGetValue(item.Path, out TagLib.Tag? tag))
+                        {
+                            audaciousPlaylistItem.Artist = string.Join(" & ", tag.Performers);
+                            audaciousPlaylistItem.Title = tag.Title;
+                            audaciousPlaylistItem.Album = tag.Album;
+                            audaciousPlaylistItem.Year = (int)tag.Year;
+                            audaciousPlaylistItem.TrackNumber = (int)tag.Track;
+                            audaciousPlaylistItem.Genre = tag.Genres;
+                        }
+                        else
+                        {
+                            using TagLib.File file = TagLib.File.Create(item.Path, TagLib.ReadStyle.PictureLazy);
+                            audaciousPlaylistItem.Artist = string.Join(" & ", file.Tag.Performers);
+                            audaciousPlaylistItem.Title = file.Tag.Title;
+                            audaciousPlaylistItem.Album = file.Tag.Album;
+                            audaciousPlaylistItem.Year = (int)file.Tag.Year;
+                            audaciousPlaylistItem.TrackNumber = (int)file.Tag.Track;
+                            audaciousPlaylistItem.Genre = file.Tag.Genres;
+                        }
+
+                        audaciousPlaylist.Items.Add(audaciousPlaylistItem);
+                    }
+                }
+            }
+
+            Log.MajorAction($"Writing playlists");
+            using (ProgressBar progress = new() { MaxWidth = 20 })
+            {
+                for (int i = 0; i < audaciousPlaylists.Count; i++)
+                {
+                    progress.Report(i, audaciousPlaylists.Count);
+                    Log.MinorAction($"Writing {1000 + i}.audpl");
+                    AudaciousPlaylist audaciousPlaylist = audaciousPlaylists[i];
+                    audaciousPlaylist.SaveTo(Path.Combine(PlaylistsDirecotry, $"{1000 + i}.audpl"));
+                }
+            }
+
+            Log.MajorAction($"Regenerating playlist order");
+            {
+                string orderFilename = Path.Combine(PlaylistsDirecotry, "order");
+                List<int> order = File.Exists(orderFilename) ? [.. File.ReadAllText(orderFilename).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse)] : [];
+
+                for (int i = 0; i < order.Count; i++)
+                {
+                    int j = order[i] - 1000;
+                    if (j < 0 || j >= audaciousPlaylists.Count)
+                    {
+                        Log.MinorAction($"Removing {order[i]}");
+                        order.RemoveAt(i--);
+                    }
+                }
+
+                for (int i = 0; i < audaciousPlaylists.Count; i++)
+                {
+                    if (!order.Contains(i + 1000))
+                    {
+                        Log.MinorAction($"Adding {i + 1000}");
+                        order.Add(i + 1000);
+                    }
+                }
+
+                Log.MinorAction($"Writing order");
+                File.WriteAllText(orderFilename, string.Join(' ', order));
+            }
+        }
+
+        if (Changes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine();
+        }
+
+        foreach (Change change in Changes.OrderBy(v => v.Type))
+        {
+            switch (change.Type)
+            {
+                case ChangeType.Create:
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write(" + ");
+                    Console.ResetColor();
+                    break;
+                case ChangeType.Modify:
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.Write(" x ");
+                    Console.ResetColor();
+                    break;
+                case ChangeType.Delete:
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write(" - ");
+                    Console.ResetColor();
+                    break;
+                default:
+                    throw new UnreachableException();
+            }
+
+            Console.WriteLine(change.File.Video is null ? Path.GetFileNameWithoutExtension(change.File.Path) : $"{change.File.Video.Author.ChannelTitle} - {change.File.Video.Title}");
         }
 
         Console.WriteLine();
@@ -955,19 +1236,19 @@ sealed class App
 
         for (int i = 0; i < MaxConcurrency; i++)
         {
-            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, channel, path, localFiles, cancellationToken);
+            tasks[i + 1] = DownloadPlaylistJob(playlist, channel, path, localFiles, cancellationToken);
         }
 
         await Task.WhenAll(tasks);
     }
 
-    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, Channel<PlaylistVideo> channel, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylistJob(Playlist playlist, Channel<PlaylistVideo> channel, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         await foreach (PlaylistVideo video in channel.Reader.ReadAllAsync(cancellationToken))
         {
             if (cancellationToken.IsCancellationRequested) break;
 
-            await HandleVideo(youtube, playlist, video, path, localFiles, cancellationToken);
+            await HandleVideo(playlist, video, path, localFiles, cancellationToken);
         }
     }
 
@@ -977,7 +1258,7 @@ sealed class App
         return SanitizeFilename($"{meta.GetArtistsText()} - {meta.GetTitleText()}");
     }
 
-    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
+    async Task HandleVideo(Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         MusicFile? musicFile = localFiles.FirstOrDefault(v => v.Id == video.Id.Value);
         if (musicFile is not null)
@@ -1027,6 +1308,8 @@ sealed class App
                     }
 
                     localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { Video = video });
+
+                    Changes.Add(new(musicFile, ChangeType.Create));
                 }
             }
         }

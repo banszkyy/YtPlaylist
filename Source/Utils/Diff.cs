@@ -1,7 +1,9 @@
 using System.Collections;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Logger;
-using YtPlaylist;
+
+namespace YtPlaylist;
 
 public class Diff
 {
@@ -100,15 +102,40 @@ public class Diff
         }
     }
 
-    public void Print()
+    public void Print(int depth)
     {
-        using (Log.Auto())
+        foreach ((string key, Change change) in _changes)
         {
-            foreach ((string key, Change change) in _changes)
-            {
-                Console.Write("    ");
+            Console.Write(new string(' ', depth * 2));
 
-                if (change.Old is null)
+            if (change.Old is null)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("+");
+                Console.ResetColor();
+                Console.Write(" ");
+                Console.Write(key);
+                Console.Write(" = ");
+                PrintValue(change.New!);
+                Console.WriteLine();
+                continue;
+            }
+
+            if (change.New is null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("-");
+                Console.ResetColor();
+                Console.Write(" ");
+                Console.Write(key);
+                Console.WriteLine();
+                continue;
+            }
+
+            if (change.Old is IEnumerable oldEnumerable && change.New is IEnumerable newEnumerable
+               && change.Old is not string && change.New is not string)
+            {
+                if (oldEnumerable.IsEmpty())
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.Write("+");
@@ -117,58 +144,125 @@ public class Diff
                     Console.Write(key);
                     Console.Write(" = ");
                     PrintValue(change.New!);
-                    goto v;
+                    Console.WriteLine();
+                    continue;
                 }
-
-                if (change.New is null)
+                else if (newEnumerable.IsEmpty())
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.Write("-");
                     Console.ResetColor();
                     Console.Write(" ");
                     Console.Write(key);
-                    goto v;
+                    Console.WriteLine();
+                    continue;
                 }
-
-                if (change.Old is IEnumerable oldEnumerable && change.New is IEnumerable newEnumerable
-                   && change.Old is not string && change.New is not string)
-                {
-                    if (oldEnumerable.IsEmpty())
-                    {
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.Write("+");
-                        Console.ResetColor();
-                        Console.Write(" ");
-                        Console.Write(key);
-                        Console.Write(" = ");
-                        PrintValue(change.New!);
-                        goto v;
-                    }
-                    else if (newEnumerable.IsEmpty())
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.Write("-");
-                        Console.ResetColor();
-                        Console.Write(" ");
-                        Console.Write(key);
-                        goto v;
-                    }
-                }
-
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.Write("x");
-                Console.ResetColor();
-                Console.Write(" ");
-                Console.Write(key);
-                Console.Write(" ");
-                PrintValue(change.Old);
-                Console.Write(" -> ");
-                PrintValue(change.New);
-
-            v:
-
-                Console.WriteLine();
             }
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write("x");
+            Console.ResetColor();
+            Console.Write(" ");
+            Console.Write(key);
+            Console.Write(" ");
+            PrintValue(change.Old);
+            Console.Write(" -> ");
+            PrintValue(change.New);
+            Console.WriteLine();
         }
+    }
+
+    public void Print()
+    {
+        using (Log.Auto())
+        {
+            Print(2);
+        }
+    }
+}
+
+public class DiffList(int count)
+{
+    public readonly struct Change(bool isAdd, Diff? @new)
+    {
+        public readonly bool IsAdd = isAdd;
+        public readonly Diff? New = @new;
+    }
+
+    int _count = count;
+    readonly Dictionary<int, Change> _changes = [];
+
+    public void Print(int depth)
+    {
+        foreach ((int index, Change change) in _changes)
+        {
+            Console.Write(new string(' ', depth * 2));
+
+            if (change.New is null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write('-');
+                Console.ResetColor();
+                Console.Write(' ');
+                Console.Write('[');
+                Console.Write(index);
+                Console.Write(']');
+                Console.WriteLine();
+                continue;
+            }
+
+            if (change.IsAdd)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write('+');
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write('x');
+                Console.ResetColor();
+            }
+
+            Console.Write(' ');
+            Console.Write('[');
+            Console.Write(index);
+            Console.Write(']');
+            Console.Write(" = ");
+            Console.WriteLine();
+            change.New.Print(depth + 1);
+        }
+    }
+
+    public Diff Modify(int index)
+    {
+        if (index < 0 || index >= _count) throw new IndexOutOfRangeException();
+
+        if (_changes.TryGetValue(index, out Change change))
+        {
+            if (change.New is null) throw new UnreachableException();
+            return change.New;
+        }
+        else
+        {
+            Diff res = new();
+            _changes.Add(index, new Change(false, res));
+            return res;
+        }
+
+    }
+
+    public void Add()
+    {
+        _changes.Add(_count, new Change(true, new()));
+        _count++;
+    }
+
+    public void RemoveAt(int index)
+    {
+        if (index < 0 || index >= _count) throw new IndexOutOfRangeException();
+
+        _count--;
+        _changes[index] = new Change(false, null);
     }
 }

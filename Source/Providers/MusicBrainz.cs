@@ -10,16 +10,6 @@ namespace YtPlaylist;
 
 static class MusicBrainz
 {
-    readonly struct Warning(string message)
-    {
-        public readonly string Message = message;
-
-        public override string ToString()
-        {
-            return Message;
-        }
-    }
-
     static ImmutableArray<T> GetBests<T>(IEnumerable<T>? queryResult, Func<T, int> score)
     {
         if (queryResult is null) return [];
@@ -50,124 +40,6 @@ static class MusicBrainz
         return [.. best];
     }
 
-    static async Task<Artist?> LookupArtist(MusicBrainzClient musicBrainz, string artist, List<string> issues, CancellationToken cancellationToken)
-    {
-        QueryResult<Artist> res;
-        string query = $"artist:{artist.Quote()} OR alias:{artist.Quote()}";
-
-        try
-        {
-            res = await musicBrainz.Artists.SearchAsync(query, 2);
-        }
-        catch (Exception ex)
-        {
-            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
-            return null;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (res.Count > 1)
-        {
-            issues.Add($"Multiple artists found with name \"{artist}\" (check https://musicbrainz.org/search?query={Uri.EscapeDataString(query)}&type=artist )");
-            return null;
-        }
-
-        return res.FirstOrDefault();
-    }
-
-    static async Task<Recording?> LookupRecording(MusicBrainzClient musicBrainz, string artist, string recordingTitle, string? remixedBy, List<string>? issues, CancellationToken cancellationToken)
-    {
-        StringBuilder queryBuilder = new();
-
-        queryBuilder.Append($"artistname:{artist.Quote()}");
-
-        queryBuilder.Append($" AND recording:{recordingTitle.Quote()}");
-
-        if (!string.IsNullOrEmpty(remixedBy))
-        {
-            queryBuilder.Append($" AND creditname:{remixedBy.Quote()}");
-        }
-
-        QueryResult<Recording> res;
-        try
-        {
-            res = await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
-        }
-        catch (Exception ex)
-        {
-            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
-            return null;
-        }
-
-        if (res.IsNullOrEmpty())
-        {
-            return null;
-        }
-
-        Debug.Assert(res.Items[0].Score > 0);
-
-        ImmutableArray<Recording> bests = GetBests(res, v => v.Score);
-
-        if (bests.Length > 1)
-        {
-            issues?.Add($"Multiple recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording )");
-            return null;
-        }
-
-        if (bests[0].Score != 100)
-        {
-            issues?.Add($"Similar recording found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording )");
-            return null;
-        }
-
-        return res.Items[0];
-    }
-
-    static async Task<Recording?> LookupRecording(MusicBrainzClient musicBrainz, Artist artist, string recordingTitle, List<string>? issues, CancellationToken cancellationToken)
-    {
-        StringBuilder queryBuilder = new();
-
-        queryBuilder.Append($"arid:{artist.Id}");
-
-        queryBuilder.Append($" AND recording:{recordingTitle.Quote()}");
-
-        QueryResult<Recording> res;
-
-        try
-        {
-            res = await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
-        }
-        catch (Exception ex)
-        {
-            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
-            return null;
-        }
-
-        if (res.IsNullOrEmpty())
-        {
-            return null;
-        }
-
-        Debug.Assert(res.Items[0].Score > 0);
-
-        ImmutableArray<Recording> bests = GetBests(res, v => v.Score);
-
-        if (bests.Length > 1)
-        {
-            issues?.Add($"Multiple recordings found (check https://musicbrainz.org/artist/{artist.Id}/recordings?filter.name={Uri.EscapeDataString(recordingTitle)} )");
-            return null;
-        }
-
-        if (bests[0].Score != 100)
-        {
-            issues?.Add($"Similar recording found (check https://musicbrainz.org/artist/{artist.Id}/recordings?filter.name={Uri.EscapeDataString(recordingTitle)} )");
-            return null;
-        }
-
-        return res.Items[0];
-    }
-
     [return: NotNullIfNotNull(nameof(v))]
     static string? FixMetaString(string? v)
     {
@@ -180,32 +52,72 @@ static class MusicBrainz
         return v;
     }
 
-    public static async Task FetchMetadata(TagLib.File file, MetaGuesser.Meta meta, Diff tagDiff, MusicBrainzClient musicBrainz, AppArguments appArguments, List<string>? issues, CancellationToken cancellationToken)
+    public static async Task FetchMetadata(TagLib.File file, MetaGuesser.Meta meta, Diff tagDiff, MusicBrainzClient musicBrainz, List<string>? issues, CancellationToken cancellationToken)
     {
         string title = FixMetaString(meta.Title);
         ImmutableArray<string> artists = [.. meta.Artists.Select(FixMetaString)!];
 
         Recording? recording = null;
 
-        foreach (string artist in artists)
+        if (artists.Length > 1 && !string.IsNullOrEmpty(meta.RemixedBy))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (meta.RemixedBy is not null && meta.RemixedBy.Contains(artist, StringComparison.InvariantCultureIgnoreCase)) continue;
-
-            recording = await LookupRecording(musicBrainz, artist, meta.Title, meta.RemixedBy, issues, cancellationToken);
-
-            break;
+            artists = [.. artists.Where(v => !string.Equals(v, meta.RemixedBy, StringComparison.OrdinalIgnoreCase))];
         }
 
-        if (recording is null)
+        StringBuilder queryBuilder = new();
+
+        if (artists.Length > 1)
         {
-            //Log.Warning($"No recording found for `{string.Join(" & ", artists)} - {title}`");
+            queryBuilder.Append($"({string.Join(" OR ", artists.Select(v => $"artistname:{v.Quote()}"))})");
+        }
+        else if (artists.Length == 1)
+        {
+            queryBuilder.Append($"artistname:{artists[0].Quote()}");
+        }
+
+        if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
+        queryBuilder.Append($"recording:{title.Quote()}");
+
+        if (!string.IsNullOrEmpty(meta.RemixedBy))
+        {
+            if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
+            queryBuilder.Append($"creditname:{meta.RemixedBy.Quote()}");
+        }
+
+        QueryResult<Recording> res;
+        try
+        {
+            res = await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
+        }
+        catch (Exception ex)
+        {
+            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
             return;
         }
 
-        //MusicBrainzUtils.Print(recording);
-        //Console.ReadKey();
+        if (res.IsNullOrEmpty())
+        {
+            issues?.Add($"No recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+            return;
+        }
+
+        Debug.Assert(res.Items[0].Score > 0);
+
+        ImmutableArray<Recording> bests = GetBests(res, v => v.Score);
+
+        if (bests.Length > 1)
+        {
+            issues?.Add($"Multiple recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+            return;
+        }
+
+        if (bests[0].Score != 100)
+        {
+            issues?.Add($"Similar recording found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+            return;
+        }
+
+        recording = res.Items[0];
 
         file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, recording.Title);
         file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, [.. (recording.Credits ?? []).Select(v => v.Name)]);

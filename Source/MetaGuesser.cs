@@ -1,10 +1,11 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using YoutubeExplode.Playlists;
 
 namespace YtPlaylist;
 
-public static class MetaGuesser
+public static partial class MetaGuesser
 {
     public readonly struct Meta(ImmutableArray<string> artists, string title, string? remixedBy) : IEquatable<Meta>
     {
@@ -66,41 +67,25 @@ public static class MetaGuesser
         int i = title.IndexOf("remix", StringComparison.InvariantCultureIgnoreCase);
         int l = i;
         int r = i;
-        while (l > 0 && !BracketPairs.ContainsKey(title[l])) l--;
-        while (r + 1 < title.Length && !BracketPairs.ContainsKey(title[r])) r++;
-        if (r + 1 != title.Length)
+        char closingBracket = '\0';
+        while (l > 0 && !BracketPairs.TryGetValue(title[l], out closingBracket)) l--;
+        while (r + 1 < title.Length && title[r] != closingBracket) r++;
+
+        ReadOnlySpan<char> part = title[(l + 1)..r];
+
+        foreach (string suffix in (string[])["remix vip", "remix"])
         {
-            warnings?.Add(new Warning($"Remix part is not at the end", r + 1));
+            if (!part.EndsWith(suffix, StringComparison.CurrentCultureIgnoreCase)) continue;
+
+            part = part[..^suffix.Length].TrimEnd();
+
+            remixedBy = part.ToString();
+            title = title[..l].ToString().TrimEnd() + title[(r + 1)..].ToString();
             return;
         }
 
-        ReadOnlySpan<char> part = title[l..(r + 1)];
-        if (BracketPairs.TryGetValue(part[0], out char expectedClosingBracket))
-        {
-            if (part[^1] != expectedClosingBracket)
-            {
-                warnings?.Add(new Warning($"Expected closing bracket '{expectedClosingBracket}' but found '{part[^1]}'", l + part.Length - 1));
-                return;
-            }
-
-            part = part[1..^1];
-
-            foreach (string suffix in (string[])["remix", "remix vip",])
-            {
-                if (!part.EndsWith(suffix, StringComparison.CurrentCultureIgnoreCase)) continue;
-
-                part = part[..^suffix.Length].TrimEnd();
-
-                remixedBy = part.ToString();
-                title = title[..l].TrimEnd();
-                return;
-            }
-
-            warnings?.Add(new Warning($"Remix suffix not found", l + 1));
-            return;
-        }
-
-        warnings?.Add(new Warning($"Couldn't parse the remix", i));
+        warnings?.Add(new Warning($"Remix suffix not found", l + 1));
+        return;
     }
 
     static ImmutableArray<string> ParseArtists(string text)
@@ -121,19 +106,49 @@ public static class MetaGuesser
         ReadOnlySpan<char> title = video.Title.Trim();
 
         const string TopicSuffix = " - Topic";
-        if (artist.EndsWith(TopicSuffix))
+
+        if (artist.EndsWith(TopicSuffix, StringComparison.InvariantCulture))
         {
             artist = artist[..^TopicSuffix.Length].TrimEnd();
         }
 
-        if (title.StartsWith($"{artist} - ", StringComparison.InvariantCultureIgnoreCase))
+        Match dummyMatch = DummySuffixRegex.Match(title.ToString());
+        if (dummyMatch.Success)
         {
-            title = title[(artist.Length + 3)..].TrimStart();
+            if (dummyMatch.Index + dummyMatch.Length == title.Length)
+            {
+                title = title[..dummyMatch.Index].TrimEnd();
+                if (title.EndsWith(" -")) title = title[..^2];
+            }
+            else
+            {
+                int l = dummyMatch.Index;
+                int r = l + dummyMatch.Length;
+                title = title[..l].TrimEnd().ToString() + title[r..].ToString();
+            }
+        }
+
+        string[] titleSegments = title.ToString().Split(" - ");
+
+        ImmutableArray<string> artists;
+
+        if (titleSegments.Length > 1)
+        {
+            artists = ParseArtists(titleSegments[0]);
+            if (artists.Length != 1 || !artists[0].Equals(artist.ToString(), StringComparison.InvariantCultureIgnoreCase))
+            {
+                warnings?.Add(new Warning($"Guessing artists from video title", 0));
+            }
+            title = string.Join(" - ", titleSegments[1..]);
+        }
+        else
+        {
+            artists = [artist.ToString()];
         }
 
         GuessRemix(ref title, out string? remixedBy, warnings);
 
-        ImmutableArray<string> artists = [.. ParseArtists(artist.ToString()).Where(artist => !string.Equals(remixedBy, artist, StringComparison.InvariantCultureIgnoreCase))];
+        artists = [.. artists.Where(artist => !string.Equals(remixedBy, artist, StringComparison.InvariantCultureIgnoreCase))];
 
         return new Meta(artists, title.ToString(), remixedBy);
     }
@@ -163,7 +178,7 @@ public static class MetaGuesser
             if (parts[^1].Contains("remix", StringComparison.InvariantCultureIgnoreCase))
             {
                 string part = parts[^1];
-                foreach (string suffix in (string[])["remix", "remix vip",])
+                foreach (string suffix in (string[])["remix vip", "remix"])
                 {
                     if (!part.EndsWith(suffix, StringComparison.CurrentCultureIgnoreCase)) continue;
 
@@ -188,4 +203,7 @@ public static class MetaGuesser
 
         return new Meta(artists, title, remixedBy);
     }
+
+    [GeneratedRegex(@"([\(\[\|]\s*)?official(( music)?( video)?( audio)?( visualizer)?)?(\s*[\)\]\|])?", RegexOptions.IgnoreCase, "en-US")]
+    static partial Regex DummySuffixRegex { get; }
 }

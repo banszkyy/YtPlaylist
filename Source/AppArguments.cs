@@ -15,4 +15,7 @@ sealed class AppArguments
     public required string OutputPath { get; init; }
     public required bool IgnoreMetaWarnings { get; init; }
     public required bool RecreateMetadata { get; init; }
+    public required bool CheckRedundancy { get; init; }
+    public required bool CheckDuplicates { get; init; }
+    public required bool RegenerateAudicousPlaylists { get; init; }
 }

@@ -99,6 +99,9 @@ static class Program
         string? youTubeCredentialsPath = null;
         bool ignoreMetaWarnings = false;
         bool recreateMetadata = false;
+        bool checkRedundancy = false;
+        bool checkDuplicates = false;
+        bool regenerateAudicousPlaylists = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -179,6 +182,15 @@ static class Program
 
                     youTubeCredentialsPath = args[++i];
                     break;
+                case "--check-redundancy":
+                    checkRedundancy = true;
+                    break;
+                case "--check-duplicates":
+                    checkDuplicates = true;
+                    break;
+                case "--regenerate-audicous-playlists":
+                    regenerateAudicousPlaylists = true;
+                    break;
                 default:
                     Log.Error($"Unexpected argument {args[i]}");
                     return 1;
@@ -235,6 +247,9 @@ static class Program
                 IgnoreMetaWarnings = ignoreMetaWarnings,
                 YouTubeCredentialsPath = youTubeCredentialsPath,
                 RecreateMetadata = recreateMetadata,
+                CheckDuplicates = checkDuplicates,
+                CheckRedundancy = checkRedundancy,
+                RegenerateAudicousPlaylists = regenerateAudicousPlaylists,
             },
         }.Run(cancellationTokenSource.Token).ContinueWith(task =>
         {

@@ -51,4 +51,14 @@ static class Extensions
             isFirst = false;
         }
     }
+
+    public static void Add(this List<MetaGuesser.Warning> list, string warning) => list.Add(new MetaGuesser.Warning(warning, 0));
+
+    public static void AddRange(this List<MetaGuesser.Warning> list, IEnumerable<string> warnings)
+    {
+        foreach (string warning in warnings)
+        {
+            list.Add(warning);
+        }
+    }
 }

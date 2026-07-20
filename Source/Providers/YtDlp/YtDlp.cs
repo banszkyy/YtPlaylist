@@ -1,17 +1,26 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using Logger;
 using YtPlaylist;
 
 static class YtDlp
 {
-    public static void DownloadAudioData(string filename, string url)
+    public static void DownloadAudioData(string filename, string url, ImmutableArray<string> additionalArguments)
     {
         using (Log.Auto())
         {
             using Process process = Process.Start(new ProcessStartInfo()
             {
                 FileName = "yt-dlp",
-                Arguments = $"--output \"{filename}\" --extract-audio --audio-format mp3 {url}",
+                Arguments = string.Join(' ', [
+                    $"--output",
+                    $"\"{filename}\"",
+                    $"--extract-audio",
+                    $"--audio-format",
+                    "mp3",
+                    ..additionalArguments,
+                    url,
+                ]),
                 UseShellExecute = true,
             })!;
             process.WaitForExit();

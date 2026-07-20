@@ -24,12 +24,13 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 ### Metadata
 
-- First, it fetches the YouTube video's metadata and sets the MP3 file's title, artist and album cover metadata.
-- Second, it searches for the music on [MusicBrainz](https://musicbrainz.org/), and sets all possible MP3 metadata tags possible.
+- Fetches the YouTube video's metadata and sets the MP3 file's title, artist and album cover metadata.
+- Parses the description of Topic channel videos for more metadata
+- Searches for the music on [MusicBrainz](https://musicbrainz.org/), and sets all possible MP3 metadata tags possible.
 
 ### Lyrics
 
-- It searches for the lyrics on [LrcLib](https://lrclib.net/), and embeds it into the MP3 metadata, and also into a .lrc file.
+- Searches for the lyrics on [LrcLib](https://lrclib.net/), and embeds it into the MP3 metadata, and also into a .lrc file.
 
 ### Duplicate detection
 
@@ -69,5 +70,5 @@ This program fulfills my needs, so no additional crazy features are planned, but
 
 ## Build Dependencies
 
-- [BBpezsgo/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
-- [BBpezsgo/Logger](https://github.com/banszkyy/Logger)
+- [banszkyy/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
+- [banszkyy/Logger](https://github.com/banszkyy/Logger)

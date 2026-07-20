@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using YoutubeExplode.Playlists;
 
@@ -7,35 +8,10 @@ namespace YtPlaylist;
 
 public static partial class MetaGuesser
 {
-    public readonly struct Meta(ImmutableArray<string> artists, string title, string? remixedBy) : IEquatable<Meta>
+    public readonly record struct Meta(ImmutableArray<string> Artists, string Title, string? RemixedBy = null, string? Album = null, string? Copyright = null, uint? Year = null)
     {
-        public readonly ImmutableArray<string> Artists = artists;
-        public readonly string Title = title;
-        public readonly string? RemixedBy = remixedBy;
-
         public string GetArtistsText() => string.Join(" & ", Artists);
         public string GetTitleText() => $"{Title}{(RemixedBy is null ? null : $" ({RemixedBy} remix)")}";
-
-        public bool Equals(Meta other) => Equals(other, StringComparison.Ordinal);
-
-        public bool Equals(Meta other, StringComparison stringComparisonType)
-        {
-            if (Artists.Length != other.Artists.Length) return false;
-            for (int i = 0; i < Artists.Length; i++)
-            {
-                if (!string.Equals(Artists[i], other.Artists[i], stringComparisonType)) return false;
-            }
-            if (!string.Equals(Title, other.Title, stringComparisonType)) return false;
-            if (!string.Equals(RemixedBy, other.RemixedBy, stringComparisonType)) return false;
-            return true;
-        }
-
-        public override bool Equals(object? obj) => obj is Meta other && Equals(other);
-
-        public override int GetHashCode() => HashCode.Combine(Artists, Title, RemixedBy);
-
-        public static bool operator ==(Meta left, Meta right) => left.Equals(right);
-        public static bool operator !=(Meta left, Meta right) => !(left == right);
 
         public override string ToString() => $"{string.Join(" & ", Artists)} - {Title}{(!string.IsNullOrEmpty(RemixedBy) ? $" ({RemixedBy} remix)" : "")}";
     }
@@ -100,16 +76,25 @@ public static partial class MetaGuesser
         return [.. artistParts];
     }
 
-    public static Meta Guess(PlaylistVideo video, List<Warning>? warnings = null)
+    class GenericVideo(string channel, string title)
     {
-        ReadOnlySpan<char> artist = video.Author.ChannelTitle.Trim();
+        public string Channel { get; } = channel;
+        public string Title { get; } = title;
+    }
+
+    static Meta Guess(GenericVideo video, List<Warning>? warnings = null)
+    {
+        ReadOnlySpan<char> artist = video.Channel.Trim();
         ReadOnlySpan<char> title = video.Title.Trim();
 
         const string TopicSuffix = " - Topic";
 
+        bool isTopic = false;
+
         if (artist.EndsWith(TopicSuffix, StringComparison.InvariantCulture))
         {
             artist = artist[..^TopicSuffix.Length].TrimEnd();
+            isTopic = true;
         }
 
         Match dummyMatch = DummySuffixRegex.Match(title.ToString());
@@ -118,7 +103,10 @@ public static partial class MetaGuesser
             if (dummyMatch.Index + dummyMatch.Length == title.Length)
             {
                 title = title[..dummyMatch.Index].TrimEnd();
-                if (title.EndsWith(" -")) title = title[..^2];
+                if (title.EndsWith(" -"))
+                {
+                    title = title[..^2];
+                }
             }
             else
             {
@@ -128,22 +116,32 @@ public static partial class MetaGuesser
             }
         }
 
-        string[] titleSegments = title.ToString().Split(" - ");
+        ImmutableArray<string> artists = [artist.ToString()];
 
-        ImmutableArray<string> artists;
-
-        if (titleSegments.Length > 1)
+        if (!isTopic)
         {
-            artists = ParseArtists(titleSegments[0]);
-            if (artists.Length != 1 || !artists[0].Equals(artist.ToString(), StringComparison.InvariantCultureIgnoreCase))
+            string[] titleSegments = [title.ToString()];
+            string? separator = null;
+            string[] separators = [" - ", " | "];
+            foreach (string _separator in separators)
             {
-                warnings?.Add(new Warning($"Guessing artists from video title", 0));
+                string[] v = title.ToString().Split(_separator);
+                if (v.Length > titleSegments.Length)
+                {
+                    titleSegments = v;
+                    separator = _separator;
+                }
             }
-            title = string.Join(" - ", titleSegments[1..]);
-        }
-        else
-        {
-            artists = [artist.ToString()];
+
+            if (titleSegments.Length > 1)
+            {
+                artists = ParseArtists(titleSegments[0]);
+                if (artists.Length != 1 || !artists[0].Equals(artist.ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    warnings?.Add(new Warning($"Guessing artists from video title", 0));
+                }
+                title = string.Join(" - ", titleSegments[1..]);
+            }
         }
 
         GuessRemix(ref title, out string? remixedBy, warnings);
@@ -151,6 +149,157 @@ public static partial class MetaGuesser
         artists = [.. artists.Where(artist => !string.Equals(remixedBy, artist, StringComparison.InvariantCultureIgnoreCase))];
 
         return new Meta(artists, title.ToString(), remixedBy);
+    }
+
+    public static Meta Guess(PlaylistVideo video, List<Warning>? warnings = null) => Guess(new GenericVideo(video.Author.ChannelTitle, video.Title), warnings);
+
+    public static Meta Guess(YoutubeExplode.Videos.Video video, List<Warning>? warnings = null)
+    {
+        Meta res = Guess(new GenericVideo(video.Author.ChannelTitle, video.Title), warnings);
+
+        if (video.Author.ChannelTitle.EndsWith(" - Topic"))
+        {
+            List<string> _warnings = [];
+
+            if (video.Id == "wpolMo9zeOM") Debugger.Break();
+
+            GeneratedDescription? desc = ParseGeneratedDescription(video.Description, _warnings);
+            warnings?.AddRange(_warnings);
+            _warnings.Clear();
+
+            if (desc is not null)
+            {
+                Dictionary<string, List<string>> roles = [];
+
+                foreach (KeyValuePair<string, ImmutableArray<string>> item in desc.Metadata)
+                {
+                    if (item.Key == "Released on")
+                    {
+                        if (item.Value.Length != 1)
+                        {
+                            warnings?.Add($"Multiple release dates");
+                        }
+                        else if (!uint.TryParse(item.Value[0].Split('-')[0], out uint _year))
+                        {
+                            warnings?.Add($"Invalid release date");
+                        }
+                        else
+                        {
+                            res = res with { Year = _year };
+                        }
+                    }
+                    else
+                    {
+                        foreach (string name in item.Value)
+                        {
+                            if (!roles.TryGetValue(name, out List<string>? others))
+                            {
+                                others = roles[name] = [];
+                            }
+                            others.Add(item.Key);
+                        }
+                    }
+                }
+
+                HashSet<string> artists = new(StringComparer.InvariantCultureIgnoreCase);
+                HashSet<string> remixers = new(StringComparer.InvariantCultureIgnoreCase);
+                HashSet<string> publishers = new(StringComparer.InvariantCultureIgnoreCase);
+                HashSet<string> composers = new(StringComparer.InvariantCultureIgnoreCase);
+
+                bool IsMentioned(string name)
+                {
+                    return desc.Keywords.Any(v => v.Contains(name, StringComparison.InvariantCultureIgnoreCase));
+                }
+
+                foreach ((string name, List<string> role) in roles)
+                {
+                    if (role.Any(r => r is "Artist" or "Performer" or "Main Artist" or "Author"))
+                    {
+                        if (IsMentioned(name))
+                        {
+                            artists.Add(name);
+                        }
+                    }
+                    else if (role.Any(r => r is "Authors"))
+                    {
+                        foreach (string n in name.Split(", "))
+                        {
+                            if (IsMentioned(n))
+                            {
+                                artists.Add(n);
+                            }
+                        }
+                    }
+                    else if (role.Any(r => r is "Remixer"))
+                    {
+                        if (IsMentioned(name))
+                        {
+                            remixers.Add(name);
+                        }
+                        else
+                        {
+                            Debugger.Break();
+                            warnings?.Add($"Remixer \"{name}\" not mentioned");
+                        }
+                    }
+                    else if (role.Any(r => r is "Music Publisher"))
+                    {
+                        publishers.Add(name);
+                    }
+                    else if (role.Any(r => r is "Composer" or "Composer Lyricist"))
+                    {
+                        composers.Add(name);
+                    }
+                }
+
+                foreach (string keyword in desc.Keywords)
+                {
+                    if (res.Title.Equals(keyword, StringComparison.InvariantCultureIgnoreCase) || res.GetTitleText().Equals(keyword, StringComparison.InvariantCultureIgnoreCase)) continue;
+                    if (artists.Contains(keyword)) continue;
+                    if (remixers.Contains(keyword)) continue;
+                    if (publishers.Contains(keyword)) continue;
+                    if (composers.Contains(keyword)) continue;
+
+                    if (res.Artists.Any(v => v.Equals(keyword, StringComparison.InvariantCultureIgnoreCase)))
+                    {
+                        artists.Add(keyword);
+                        continue;
+                    }
+
+                    List<string> role = roles.TryGetValue(keyword, out List<string>? _0) ? _0 : [];
+                    if (role.Count == 0) continue;
+                }
+
+
+                res = res with
+                {
+                    Copyright = desc.Copyright,
+                };
+
+                if (!desc.Album.Equals(res.Title, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    res = res with { Album = desc.Album };
+                }
+
+                if (remixers.Count == 1)
+                {
+                    res = res with { RemixedBy = remixers.First() };
+                }
+                else if (remixers.Count > 1)
+                {
+                    warnings?.Add($"Multiple remixers");
+                }
+
+                if (artists.Count > 0)
+                {
+                    res = res with { Artists = [.. artists] };
+                }
+
+                warnings?.AddRange(_warnings);
+            }
+        }
+
+        return res;
     }
 
     public static Meta Guess(ReadOnlySpan<char> text, List<Warning>? warnings = null)
@@ -206,4 +355,102 @@ public static partial class MetaGuesser
 
     [GeneratedRegex(@"([\(\[\|]\s*)?official(( music)?( video)?( audio)?( visualizer)?)?(\s*[\)\]\|])?", RegexOptions.IgnoreCase, "en-US")]
     static partial Regex DummySuffixRegex { get; }
+
+
+    public class GeneratedDescription
+    {
+        public required string ProvidedBy { get; init; }
+        public required ImmutableArray<string> Keywords { get; init; }
+        public required string Album { get; init; }
+        public required string Copyright { get; init; }
+        public required ImmutableDictionary<string, ImmutableArray<string>> Metadata { get; init; }
+    }
+
+    public static GeneratedDescription? ParseGeneratedDescription(string description, List<string>? issues)
+    {
+        string[] lines = description.Split('\n');
+        if (lines[^1] != "Auto-generated by YouTube.")
+        {
+            return null;
+        }
+
+        if (lines.Length < 8)
+        {
+            issues?.Add($"Invalid generated description");
+            return null;
+        }
+
+        const string ProvidedByPrefix = "Provided to YouTube by ";
+        string providedBy = lines[0];
+        if (!providedBy.StartsWith(ProvidedByPrefix))
+        {
+            issues?.Add($"Invalid provider line");
+            return null;
+        }
+        else
+        {
+            providedBy = providedBy[ProvidedByPrefix.Length..];
+        }
+
+        string[] keywords = lines[2].Split(" · ");
+
+        string album = lines[4];
+
+        if (string.IsNullOrWhiteSpace(album))
+        {
+            issues?.Add($"Empty album");
+        }
+
+        string copyright = lines[6];
+
+        if (string.IsNullOrWhiteSpace(copyright))
+        {
+            issues?.Add($"Empty copyright");
+        }
+        else if (!copyright.StartsWith("℗ "))
+        {
+            issues?.Add($"Invalid copyright");
+        }
+        else
+        {
+            copyright = copyright[2..];
+        }
+
+        Dictionary<string, List<string>> metadata = [];
+        for (int i = 7; i < lines.Length - 1; i++)
+        {
+            string line = lines[i];
+            if (string.IsNullOrEmpty(line)) continue;
+
+            if (!line.Contains(':'))
+            {
+                issues?.Add($"Invalid meta line \"{line}\"");
+                continue;
+            }
+
+            string[] k = line.Split(':')[0].Trim().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string v = line.Split(':')[1].Trim();
+
+            for (int j = 0; j < k.Length; j++)
+            {
+                string w = k[j];
+                w = w.Replace("  ", " ").Replace("  ", " ");
+
+                if (!metadata.TryGetValue(w, out List<string>? values))
+                {
+                    values = metadata[w] = [];
+                }
+                values.Add(v);
+            }
+        }
+
+        return new()
+        {
+            ProvidedBy = providedBy,
+            Keywords = [.. keywords],
+            Album = album,
+            Copyright = copyright,
+            Metadata = [.. metadata.Select(v => new KeyValuePair<string, ImmutableArray<string>>(v.Key, [.. v.Value]))],
+        };
+    }
 }

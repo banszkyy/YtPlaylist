@@ -18,4 +18,5 @@ sealed class AppArguments
     public required bool CheckRedundancy { get; init; }
     public required bool CheckDuplicates { get; init; }
     public required bool RegenerateAudicousPlaylists { get; init; }
+    public required ImmutableArray<string> YtDlpAdditionalArguments { get; init; }
 }

@@ -138,7 +138,7 @@ static class MusicBrainz
 
         if (appearedInReleases.Count > 1)
         {
-            issues?.Add($"Recording {recording.Id} appeared in multiple releases (check https://musicbrainz.org/recording/{recording.Id} )");
+            //issues?.Add($"Recording {recording.Id} appeared in multiple releases (check https://musicbrainz.org/recording/{recording.Id} )");
         }
         else if (appearedInReleases.Count == 0)
         {
@@ -151,7 +151,12 @@ static class MusicBrainz
 
             if (file.Tag.Pictures.Length == 0 || file.Tag.Pictures[0].Description != "MusicBrainz")
             {
-                await TagUtils.DownloadCoverImage(file, CoverArtArchive.GetCoverArtUri(release.Id), "MusicBrainz", TagLib.PictureType.FrontCover, tagDiff, cancellationToken);
+                Uri url = new($"https://coverartarchive.org/release/{release.Id}/front-250.jpg", UriKind.Absolute);
+                bool ok = await TagUtils.DownloadCoverImage(file, url, "MusicBrainz", TagLib.PictureType.FrontCover, tagDiff, cancellationToken);
+                if (!ok)
+                {
+                    issues?.Add($"Couldn't download cover art (check {url} )");
+                }
             }
 
             file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, release.Status);

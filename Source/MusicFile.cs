@@ -1,5 +1,6 @@
 using Logger;
 using YoutubeExplode.Playlists;
+using YoutubeExplode.Videos;
 
 namespace YtPlaylist;
 
@@ -8,7 +9,8 @@ public class MusicFile(string path, string id, Playlist playlist)
     public string Path { get; set; } = path;
     public string Id { get; } = id;
     public Playlist Playlist { get; } = playlist;
-    public PlaylistVideo? Video { get; set; }
+    public PlaylistVideo? PlaylistVideo { get; set; }
+    public Video? Video { get; set; }
 
     public static void Delete(MusicFile file)
     {

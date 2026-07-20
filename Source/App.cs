@@ -10,6 +10,8 @@ using Google.Apis.YouTube.v3;
 using System.Diagnostics;
 using Quickenshtein;
 using FFMPEG.Probe;
+using YoutubeExplode.Videos;
+using YoutubeExplode.Exceptions;
 
 namespace YtPlaylist;
 
@@ -159,7 +161,7 @@ sealed class App
 
                     string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
 
-                    await DownloadPlaylist(playlist, youtube, youTubeCache, online, outputPath, playlistFiles[playlist.Id.Value], cancellationToken);
+                    await DownloadPlaylist(youtube, playlist, youTubeCache, online, outputPath, playlistFiles[playlist.Id.Value], cancellationToken);
                 }
             }
         }
@@ -347,7 +349,7 @@ sealed class App
             }
         }
 
-        List<MusicFile> deleteFiles = [.. playlistFiles.Values.SelectMany(v => v).Where(item => item.Video is null)];
+        List<MusicFile> deleteFiles = [.. playlistFiles.Values.SelectMany(v => v).Where(item => item.PlaylistVideo is null)];
 
         if (deleteFiles.Count > 0)
         {
@@ -375,7 +377,7 @@ sealed class App
                         Changes.Add(new(file, ChangeType.Delete));
 
                         playlistFiles[file.Playlist.Id.Value].RemoveAll(v => v.Id == file.Id);
-                        if (file.Video is not null) online.Remove(file.Video);
+                        if (file.PlaylistVideo is not null) online.Remove(file.PlaylistVideo);
                     }
                 }
             }
@@ -410,7 +412,7 @@ sealed class App
                     string outputPath = Path.Combine(Arguments.OutputPath, playlists.First(v => v.Id.Value == musicFile.Playlist.Id.Value).Title);
 
                     string name = Path.GetFileNameWithoutExtension(musicFile.Path);
-                    string? originalFilename = musicFile.Video is not null ? GetFileNameWithoutExtension(musicFile.Video) : null;
+                    string? originalFilename = musicFile.PlaylistVideo is not null ? GetFileNameWithoutExtension(musicFile.PlaylistVideo) : null;
 
                     //if (musicFile.Video is not null
                     //    && originalFilename is not null
@@ -443,9 +445,9 @@ sealed class App
                         List<MetaGuesser.Warning>? warnings = Arguments.IgnoreMetaWarnings ? null : [];
                         MetaGuesser.Meta guessedMeta;
 
-                        if (musicFile.Video is not null)
+                        if (musicFile.PlaylistVideo is not null)
                         {
-                            guessedMeta = MetaGuesser.Guess(musicFile.Video, warnings);
+                            guessedMeta = MetaGuesser.Guess(musicFile.PlaylistVideo, warnings);
                         }
                         else
                         {
@@ -542,7 +544,7 @@ sealed class App
                         if (lyrics.SyncedLyrics is null && lyrics.PlainLyrics is null) continue;
 
                         TimeSpan lyricsDuration = TimeSpan.FromSeconds(lyrics.Duration);
-                        TimeSpan? videoDuration = musicFile.Video?.Duration;
+                        TimeSpan? videoDuration = musicFile.PlaylistVideo?.Duration;
 
                         if (videoDuration.HasValue)
                         {
@@ -769,8 +771,8 @@ sealed class App
                     {
                         MusicFile b = all[j];
 
-                        if (a.Video is not null && b.Video is not null
-                            && MetaGuesser.Guess(a.Video) == MetaGuesser.Guess(b.Video))
+                        if (a.PlaylistVideo is not null && b.PlaylistVideo is not null
+                            && MetaGuesser.Guess(a.PlaylistVideo) == MetaGuesser.Guess(b.PlaylistVideo))
                         {
                             goto dupFound;
                         }
@@ -811,9 +813,9 @@ sealed class App
                         Console.Write('[');
                         Console.Write(item.Playlist.Title);
                         Console.Write(']');
-                        if (item.Video is not null)
+                        if (item.PlaylistVideo is not null)
                         {
-                            Console.Write($" {item.Video.Author.ChannelTitle} - {item.Video.Title}");
+                            Console.Write($" {item.PlaylistVideo.Author.ChannelTitle} - {item.PlaylistVideo.Title}");
                         }
                         else
                         {
@@ -834,7 +836,7 @@ sealed class App
 
                     foreach (ImmutableArray<MusicFile> _items in duplicates)
                     {
-                        ImmutableArray<MusicFile> items = [.. _items.Where(v => v.Video is not null)];
+                        ImmutableArray<MusicFile> items = [.. _items.Where(v => v.PlaylistVideo is not null)];
                         if (items.IsEmpty)
                         {
                             Log.Warning($"Something went wrong meow");
@@ -849,7 +851,7 @@ sealed class App
                             Console.Write(i + 1);
                             Console.ResetColor();
                             Console.Write(" - ");
-                            Console.Write($"[{item.Playlist.Title}] {item.Video!.Author} - {item.Video.Title} (check https://www.youtube.com/watch?v={item.Video.Id} )");
+                            Console.Write($"[{item.Playlist.Title}] {item.PlaylistVideo!.Author} - {item.PlaylistVideo.Title} (check https://www.youtube.com/watch?v={item.PlaylistVideo.Id} )");
                             Console.WriteLine();
                         }
 
@@ -876,7 +878,7 @@ sealed class App
                         for (int i = 0; i < items.Length; i++)
                         {
                             if (i == index) continue;
-                            PlaylistVideo video = items[i].Video!;
+                            PlaylistVideo video = items[i].PlaylistVideo!;
 
                             try
                             {
@@ -1124,7 +1126,7 @@ sealed class App
                     progress.Report(i, audaciousPlaylists.Count);
                     Log.MinorAction($"Writing {1000 + i}.audpl");
                     AudaciousPlaylist audaciousPlaylist = audaciousPlaylists[i];
-                    audaciousPlaylist.SaveTo(Path.Combine(PlaylistsDirecotry, $"{1000 + i}.audpl"));
+                    if (!Arguments.DryRun) audaciousPlaylist.SaveTo(Path.Combine(PlaylistsDirecotry, $"{1000 + i}.audpl"));
                 }
             }
 
@@ -1153,7 +1155,7 @@ sealed class App
                 }
 
                 Log.MinorAction($"Writing order");
-                File.WriteAllText(orderFilename, string.Join(' ', order));
+                if (!Arguments.DryRun) File.WriteAllText(orderFilename, string.Join(' ', order));
             }
         }
 
@@ -1186,7 +1188,7 @@ sealed class App
                     throw new UnreachableException();
             }
 
-            Console.WriteLine(change.File.Video is null ? Path.GetFileNameWithoutExtension(change.File.Path) : $"{change.File.Video.Author.ChannelTitle} - {change.File.Video.Title}");
+            Console.WriteLine(change.File.PlaylistVideo is null ? Path.GetFileNameWithoutExtension(change.File.Path) : $"{change.File.PlaylistVideo.Author.ChannelTitle} - {change.File.PlaylistVideo.Title}");
         }
 
         Console.WriteLine();
@@ -1195,7 +1197,7 @@ sealed class App
 
     #region YouTube
 
-    async Task DownloadPlaylist(Playlist playlist, YoutubeClient youtube, YouTubeCache? youTubeCache, List<PlaylistVideo> online, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylist(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, List<PlaylistVideo> online, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         Channel<PlaylistVideo> channel = Channel.CreateUnbounded<PlaylistVideo>();
 
@@ -1236,19 +1238,19 @@ sealed class App
 
         for (int i = 0; i < MaxConcurrency; i++)
         {
-            tasks[i + 1] = DownloadPlaylistJob(playlist, channel, path, localFiles, cancellationToken);
+            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, youTubeCache, channel, path, localFiles, cancellationToken);
         }
 
         await Task.WhenAll(tasks);
     }
 
-    async Task DownloadPlaylistJob(Playlist playlist, Channel<PlaylistVideo> channel, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, Channel<PlaylistVideo> channel, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         await foreach (PlaylistVideo video in channel.Reader.ReadAllAsync(cancellationToken))
         {
             if (cancellationToken.IsCancellationRequested) break;
 
-            await HandleVideo(playlist, video, path, localFiles, cancellationToken);
+            await HandleVideo(youtube, playlist, youTubeCache, video, path, localFiles, cancellationToken);
         }
     }
 
@@ -1258,12 +1260,12 @@ sealed class App
         return SanitizeFilename($"{meta.GetArtistsText()} - {meta.GetTitleText()}");
     }
 
-    async Task HandleVideo(Playlist playlist, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
+    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, PlaylistVideo video, string path, List<MusicFile> localFiles, CancellationToken cancellationToken = default)
     {
         MusicFile? musicFile = localFiles.FirstOrDefault(v => v.Id == video.Id.Value);
         if (musicFile is not null)
         {
-            musicFile.Video = video;
+            musicFile.PlaylistVideo = video;
             goto meta;
         }
 
@@ -1271,7 +1273,7 @@ sealed class App
 
         if (File.Exists(filename))
         {
-            localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { Video = video });
+            localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { PlaylistVideo = video });
         }
 
         if (Arguments.Download)
@@ -1292,7 +1294,7 @@ sealed class App
                     Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
 
                     Exception? downloadException = await RunRetries(
-                        (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}"), cancellationToken),
+                        (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}", Arguments.YtDlpAdditionalArguments), cancellationToken),
                         GenericHttpRetryFilter,
                         MaxRetries,
                         cancellationToken
@@ -1307,7 +1309,7 @@ sealed class App
                             return;
                     }
 
-                    localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { Video = video });
+                    localFiles.Add(musicFile = new MusicFile(filename, video.Id, playlist) { PlaylistVideo = video });
 
                     Changes.Add(new(musicFile, ChangeType.Create));
                 }
@@ -1320,7 +1322,7 @@ sealed class App
 
     meta:
 
-        if (!Arguments.DryRun && musicFile is not null)
+        if (musicFile is not null)
         {
             using TagLib.File file = TagLib.File.Create(musicFile.Path);
             Diff diff = new();
@@ -1331,18 +1333,51 @@ sealed class App
             {
                 if (file.Tag.Pictures.Length == 0)
                 {
-                    await TagUtils.DownloadCoverImage(file, new Uri(video.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute), "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
+                    if (!Arguments.DryRun) await TagUtils.DownloadCoverImage(file, new Uri(video.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute), "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
                 }
 
                 MetaGuesser.Meta meta = MetaGuesser.Guess(video);
 
                 if (string.IsNullOrEmpty(file.Tag.Title)) file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.GetTitleText());
                 if (file.Tag.Performers.IsNullOrEmpty()) file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
+
+                if (video.Author.ChannelTitle.EndsWith(" - Topic"))
+                {
+                    Video? video2 = null;
+                    try
+                    {
+                        string url = $"https://www.youtube.com/watch?v={video.Id}";
+                        if (youTubeCache is null || !youTubeCache.LoadVideo(video.Id, out video2))
+                        {
+                            video2 = await youtube.Videos.GetAsync(url, cancellationToken);
+                            youTubeCache?.SaveVideo(video2);
+                        }
+                        musicFile.Video = video2;
+                    }
+                    catch (VideoUnavailableException ex)
+                    {
+                        Log.Error(ex.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex);
+                    }
+
+                    if (video2 is not null)
+                    {
+                        meta = MetaGuesser.Guess(video2);
+                        file.Tag.Title = diff.Modify("Title", file.Tag.Title, meta.GetTitleText());
+                        file.Tag.Performers = diff.Modify("Performers", file.Tag.Performers, [.. meta.Artists]);
+                        file.Tag.Year = diff.Modify("Year", file.Tag.Year, meta.Year ?? default);
+                        file.Tag.Copyright = diff.Modify("Copyright", file.Tag.Copyright, meta.Copyright);
+                        file.Tag.Album = diff.Modify("Album", file.Tag.Album, meta.Album);
+                    }
+                }
             }
 
             if (diff.Changes.Count > 0)
             {
-                file.Save();
+                if (!Arguments.DryRun) file.Save();
                 Log.Debug($"Metadata updated");
                 diff.Print();
             }

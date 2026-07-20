@@ -55,7 +55,7 @@ static class TagUtils
             and not System.Net.Mime.MediaTypeNames.Image.Tiff
             and not System.Net.Mime.MediaTypeNames.Image.Webp)
         {
-            Log.Warning($"Unknown cover image media type \"{mimeType}\"");
+            Log.Error($"Unknown cover image media type \"{mimeType}\"");
             return false;
         }
 

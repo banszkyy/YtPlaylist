@@ -2,7 +2,7 @@
 
 [![.Net 11.0](https://img.shields.io/badge/11.0-606060?style=flat-square&logo=dotnet&labelColor=512BD4)](#)
 
-Downloads and synchronizes YouTube playlists as MP3 files so you can listen to them offline!!!
+Downloads and synchronizes YouTube playlists as MP3 files so you can listen to them offline!!! (it also syncs it to SoundCloud :p)
 
 ## Features
 
@@ -87,6 +87,7 @@ This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, whe
 
 - [banszkyy/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
 - [banszkyy/Logger](https://github.com/banszkyy/Logger)
+- banszkyy/HttpCache (not yet published)
 
 ## Would you use this?
 

@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../MusicBrainz"
+		},
+		{
+			"path": "../HttpCache"
 		}
 	],
 	"settings": {}

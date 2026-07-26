@@ -20,6 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
     <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
     <PackageReference Include="Google.Apis.Oauth2.v2" Version="1.74.0.1869" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.75.0.4207" />
@@ -30,6 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../HttpCache/HttpCache.csproj" />
     <ProjectReference Include="../Logger/Logger.csproj" />
     <ProjectReference Include="../MusicBrainz/src/Hqub.MusicBrainz/Hqub.MusicBrainz.csproj" />
   </ItemGroup>

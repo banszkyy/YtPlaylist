@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="../Logger/Logger.csproj" />
+  <Project Path="../HttpCache/HttpCache.csproj" />
   <Project Path="../MusicBrainz/src/Hqub.MusicBrainz/Hqub.MusicBrainz.csproj" />
   <Project Path="YtPlaylist.csproj" />
 </Solution>

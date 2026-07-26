@@ -40,6 +40,11 @@ static class MusicBrainz
         return [.. best];
     }
 
+    static readonly ImmutableDictionary<int, string?> InvalidQueryCharacters = Confusables.CompileMap(new Dictionary<string, string?>()
+    {
+        { "[]<>{}", null }
+    });
+
     [return: NotNullIfNotNull(nameof(v))]
     static string? FixMetaString(string? v)
     {
@@ -47,21 +52,22 @@ static class MusicBrainz
         int i = v.IndexOf('(');
         if (i is not -1 and not 0)
         {
-            return v[..i].TrimEnd();
+            v = v[..i].TrimEnd();
         }
+        v = Confusables.Replace(v, InvalidQueryCharacters);
         return v;
     }
 
-    public static async Task FetchMetadata(TagLib.File file, MetaGuesser.Meta meta, Diff tagDiff, MusicBrainzClient musicBrainz, List<string>? issues, CancellationToken cancellationToken)
+    public static async Task FetchMetadata(MusicFile musicFile, MusicBrainzClient musicBrainz, List<string>? issues, CancellationToken cancellationToken)
     {
-        string title = FixMetaString(meta.Title);
-        ImmutableArray<string> artists = [.. meta.Artists.Select(FixMetaString)!];
+        string? title = FixMetaString(musicFile.Meta.Title);
+        ImmutableArray<string> artists = [.. musicFile.Meta.Performers.Select(FixMetaString)!];
 
         Recording? recording = null;
 
-        if (artists.Length > 1 && !string.IsNullOrEmpty(meta.RemixedBy))
+        if (artists.Length > 1 && !string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
         {
-            artists = [.. artists.Where(v => !string.Equals(v, meta.RemixedBy, StringComparison.OrdinalIgnoreCase))];
+            artists = [.. artists.Where(v => !string.Equals(v, musicFile.Meta.RemixedBy, StringComparison.OrdinalIgnoreCase))];
         }
 
         StringBuilder queryBuilder = new();
@@ -78,10 +84,10 @@ static class MusicBrainz
         if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
         queryBuilder.Append($"recording:{title.Quote()}");
 
-        if (!string.IsNullOrEmpty(meta.RemixedBy))
+        if (!string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
         {
             if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
-            queryBuilder.Append($"creditname:{meta.RemixedBy.Quote()}");
+            queryBuilder.Append($"creditname:{musicFile.Meta.RemixedBy.Quote()}");
         }
 
         QueryResult<Recording> res;
@@ -119,8 +125,23 @@ static class MusicBrainz
 
         recording = res.Items[0];
 
-        file.Tag.Title = tagDiff.Modify("Title", file.Tag.Title, recording.Title);
-        file.Tag.Performers = tagDiff.Modify("Performers", file.Tag.Performers, [.. (recording.Credits ?? []).Select(v => v.Name)]);
+        if (!string.Equals(musicFile.Meta.Title, recording.Title, StringComparison.InvariantCultureIgnoreCase))
+        {
+            issues?.Add($"Recording title doesn't match with \"{musicFile.Meta.Title}\" (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+        }
+
+        musicFile.Meta.Performers = recording.Credits.IsNullOrEmpty() ? musicFile.Meta.Performers : [.. recording.Credits.Select(v => Confusables.Replace(v.Name, Confusables.Equivalents))];
+        musicFile.Meta.Title = string.IsNullOrEmpty(recording.Title) ? musicFile.Meta.Title : Confusables.Replace(recording.Title, Confusables.Equivalents);
+        musicFile.Meta.Genres = recording.Genres.IsNullOrEmpty() ? musicFile.Meta.Genres : [.. recording.Genres.Select(v => v.Name) ?? []];
+
+        musicFile.OpenTags();
+
+        TagLib.File tagsFile = musicFile.TagsFile;
+        Diff tagsDiff = musicFile.TagsDiff;
+
+        tagsFile.Tag.Title = tagsDiff.Modify("Title", tagsFile.Tag.Title, musicFile.Meta.Title);
+        tagsFile.Tag.Performers = tagsDiff.Modify("Performers", tagsFile.Tag.Performers, [.. musicFile.Meta.Performers]);
+        tagsFile.Tag.Genres = tagsDiff.Modify("Genres", tagsFile.Tag.Genres, [.. musicFile.Meta.Genres]);
 
         List<Release> appearedInReleases = recording.Releases ?? [];
 
@@ -138,7 +159,7 @@ static class MusicBrainz
 
         if (appearedInReleases.Count > 1)
         {
-            //issues?.Add($"Recording {recording.Id} appeared in multiple releases (check https://musicbrainz.org/recording/{recording.Id} )");
+            issues?.Add($"Recording {recording.Id} appeared in multiple releases (check https://musicbrainz.org/recording/{recording.Id} )");
         }
         else if (appearedInReleases.Count == 0)
         {
@@ -149,27 +170,31 @@ static class MusicBrainz
             Release release = appearedInReleases[0];
             release = await musicBrainz.Releases.GetAsync(release.Id, "genres", "tags", "release-groups", "recordings");
 
-            if (file.Tag.Pictures.Length == 0 || file.Tag.Pictures[0].Description != "MusicBrainz")
+            if (tagsFile.Tag.Pictures.Length == 0 || tagsFile.Tag.Pictures[0].Description != "MusicBrainz")
             {
                 Uri url = new($"https://coverartarchive.org/release/{release.Id}/front-250.jpg", UriKind.Absolute);
-                bool ok = await TagUtils.DownloadCoverImage(file, url, "MusicBrainz", TagLib.PictureType.FrontCover, tagDiff, cancellationToken);
+                bool ok = await TagUtils.DownloadCoverImage(tagsFile, url, "MusicBrainz", TagLib.PictureType.FrontCover, tagsDiff, cancellationToken);
                 if (!ok)
                 {
                     issues?.Add($"Couldn't download cover art (check {url} )");
                 }
             }
 
-            file.Tag.MusicBrainzReleaseStatus = tagDiff.Modify("MusicBrainzReleaseStatus", file.Tag.MusicBrainzReleaseStatus, release.Status);
-            file.Tag.MusicBrainzReleaseCountry = tagDiff.Modify("MusicBrainzReleaseCountry", file.Tag.MusicBrainzReleaseCountry, release.Country);
-            file.Tag.MusicBrainzReleaseId = tagDiff.Modify("MusicBrainzReleaseId", file.Tag.MusicBrainzReleaseId, release.Id);
-            file.Tag.Genres = tagDiff.Modify("Genres", file.Tag.Genres, [.. (release.Genres ?? recording.Genres ?? []).Select(v => v.Name)]);
+            if ((release.Genres ?? []).Count > 0) musicFile.Meta.Genres = [.. (release.Genres ?? []).Select(v => Confusables.Replace(v.Name, Confusables.Equivalents))];
+
+            tagsFile.Tag.MusicBrainzReleaseStatus = tagsDiff.Modify("MusicBrainzReleaseStatus", tagsFile.Tag.MusicBrainzReleaseStatus, release.Status);
+            tagsFile.Tag.MusicBrainzReleaseCountry = tagsDiff.Modify("MusicBrainzReleaseCountry", tagsFile.Tag.MusicBrainzReleaseCountry, release.Country);
+            tagsFile.Tag.MusicBrainzReleaseId = tagsDiff.Modify("MusicBrainzReleaseId", tagsFile.Tag.MusicBrainzReleaseId, release.Id);
+            tagsFile.Tag.Genres = tagsDiff.Modify("Genres", tagsFile.Tag.Genres, [.. musicFile.Meta.Genres]);
 
             if (release.Date is not null)
             {
                 string[] v = release.Date.Split('-');
                 if (v.Length >= 1 && uint.TryParse(v[0], out uint year))
                 {
-                    file.Tag.Year = tagDiff.Modify("Year", file.Tag.Year, year);
+                    musicFile.Meta.Year = year;
+
+                    tagsFile.Tag.Year = tagsDiff.Modify("Year", tagsFile.Tag.Year, year);
                 }
                 else
                 {
@@ -180,12 +205,19 @@ static class MusicBrainz
             ReleaseGroup? releaseGroup = release.ReleaseGroup;
             if (releaseGroup is not null)
             {
-                file.Tag.MusicBrainzReleaseGroupId = tagDiff.Modify("MusicBrainzReleaseGroupId", file.Tag.MusicBrainzReleaseGroupId, releaseGroup.Id);
+                tagsFile.Tag.MusicBrainzReleaseGroupId = tagsDiff.Modify("MusicBrainzReleaseGroupId", tagsFile.Tag.MusicBrainzReleaseGroupId, releaseGroup.Id);
+
+                if (musicFile.Meta.Genres.IsDefaultOrEmpty && (releaseGroup.Genres ?? []).Count > 0) musicFile.Meta.Genres = [.. (releaseGroup.Genres ?? []).Select(v => v.Name)];
+
+                tagsFile.Tag.Genres = tagsDiff.Modify("Genres", tagsFile.Tag.Genres, [.. musicFile.Meta.Genres]);
 
                 if (releaseGroup.PrimaryType == "Album")
                 {
-                    file.Tag.Album = tagDiff.Modify("Album", file.Tag.Album, releaseGroup.Title);
-                    file.Tag.AlbumArtists = tagDiff.Modify("AlbumArtists", file.Tag.AlbumArtists, [.. (releaseGroup.Credits ?? []).Select(v => v.Name)]);
+                    musicFile.Meta.Album = Confusables.Replace(releaseGroup.Title, Confusables.Equivalents);
+                    musicFile.Meta.AlbumArtists = [.. (releaseGroup.Credits ?? []).Select(v => Confusables.Replace(v.Name, Confusables.Equivalents))];
+
+                    tagsFile.Tag.Album = tagsDiff.Modify("Album", tagsFile.Tag.Album, musicFile.Meta.Album);
+                    tagsFile.Tag.AlbumArtists = tagsDiff.Modify("AlbumArtists", tagsFile.Tag.AlbumArtists, [.. musicFile.Meta.AlbumArtists]);
                 }
             }
 
@@ -202,9 +234,9 @@ static class MusicBrainz
                     foreach (Track track in media.Tracks)
                     {
                         if (track.Recording.Id != recording.Id) continue;
-                        file.Tag.Track = tagDiff.Modify("Track", file.Tag.Track, (uint)track.Position);
-                        file.Tag.TrackCount = tagDiff.Modify("TrackCount", file.Tag.TrackCount, (uint)media.TrackCount);
-                        file.Tag.MusicBrainzTrackId = tagDiff.Modify("MusicBrainzTrackId", file.Tag.MusicBrainzTrackId, track.Id);
+                        tagsFile.Tag.Track = tagsDiff.Modify("Track", tagsFile.Tag.Track, (uint)track.Position);
+                        tagsFile.Tag.TrackCount = tagsDiff.Modify("TrackCount", tagsFile.Tag.TrackCount, (uint)media.TrackCount);
+                        tagsFile.Tag.MusicBrainzTrackId = tagsDiff.Modify("MusicBrainzTrackId", tagsFile.Tag.MusicBrainzTrackId, track.Id);
                         goto ok;
                     }
 

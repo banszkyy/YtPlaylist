@@ -33,29 +33,15 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 - Warns you if you have the same music in multiple different playlists.
 - Warns you if you have very extremely suspiciously similar music files.
 
-If you specify `--ytcredentials`, you can also remove the duplicated music from the command line.
+If you specify `--youtube-credentials`, you can also remove the duplicated music from the command line.
 
-## Would you use this?
+## Example Usage
 
-This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!
+```bash
+ytsync -p PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs -o ./Music
+```
 
-## Runtime Dependencies
-
-- `ffmpeg`
-- `yt-dlp`
-
-## Arguments
-
-- `-p|--playlist <id>` - The YouTube playlist id to download (you can specify more)
-- `-o|--output <path>` - Output directory to sync the playlists to
-- `--nodownload` - Don't download any new YouTube music videos
-- `--nometadata` - Don't fetch song metadata
-- `--nolyrics` - Don't fetch song lyrics
-- `--httpcache <path>` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube)
-- `--ignoremetawarnings` - Ignores all metadata warnings produced when it cannot parse the filename, or it cannot find the MusicBrainz record
-- `--ytcredentials <path>` - Specifies where to save the credentials when interacting with the YouTube API
-- `--usecache` - For testing only
-- `--dry` - For testing only
+This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, where `PLAYLIST_NAME` is the name of the specified playlist on YouTube
 
 > [!TIP]
 > You can get the playlist id by navigating to the playlist on YouTube. For example:
@@ -64,7 +50,44 @@ This program fulfills my needs, so no additional crazy features are planned, but
 >
 > And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
 
+## Arguments
+
+- `-p|--playlist <id>` - The YouTube playlist id to download (you can specify more)
+- `-o|--output <path>` - Output directory to sync the playlists to
+- `--no-download` - Don't download any YouTube music videos
+- `--no-metadata` - Don't fetch any song metadata
+- `--no-lyrics` - Don't fetch song lyrics
+- `--http-cache <path>` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube)
+- `--ignore-meta-warnings` - Ignores all metadata warnings produced when it cannot parse the filename, or it cannot find the MusicBrainz record
+- `--youtube-credentials <path>` - File to save the credentials when interacting with the YouTube API
+- `--soundcloud-credentials <path>` - Credentials to use when interacting with the SoundCloud API
+- `--cookies <path>` - [Netscape cookies file](https://everything.curl.dev/http/cookies/fileformat.html) to extract credentials from ([Get cookies.txt LOCALLY](https://github.com/kairi003/Get-cookies.txt-LOCALLY#from-webstore))
+- `--check-redundancy` - Checks for similar meta tags across all music files, like artist names with different capitalization or a few letter differences
+- `--check-duplicates` - Checks for duplicate music based on the meta tags. Music with the same YouTube id will always be checked for
+- `--regenerate-audicous-playlists` - Regenerates your Audicous playlists (stored in `$HOME/.config/audacious/playlists`)
+- `--sync-soundcloud-playlists` - **WIP** Synchronizes your SoundCloud playlists with your YouTube playlists (YouTube -> SoundCloud)
+- `--sound-cloud-ignore <id/name>` - Don't sync this playlist to SoundCloud. You can specify by playlist id or name (you can specify more)
+- `--ignore-soundcloud-match-warnings` - Ignores warnings related to SoundCloud track matching
+- `--ytdlp <arg>` - Additional ytdlp argument (you can specify more)
+- `--save-intermediate-tags` - Saves ID3v2 tags after they are being changed. Will skew up the final diff info, but the tags will be saved if you terminate the app
+- `--use-cache` - For testing only
+- `--reset-meta` - For testing only
+- `--dry` - For testing only
+
+> [!INFO]
+> For the arguments where you can specify more, you have to write the argument name too:
+> Instead of `--playlist meowmeow1 wiwiwi` you should write `--playlist meowmeow1 --playlist wiwiwi`
+
+## Runtime Dependencies
+
+- `ffmpeg`
+- `yt-dlp`
+
 ## Build Dependencies
 
 - [banszkyy/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
 - [banszkyy/Logger](https://github.com/banszkyy/Logger)
+
+## Would you use this?
+
+This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!

@@ -1,13 +1,42 @@
-using System.Collections.Frozen;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text;
 
 namespace YtPlaylist;
 
-static class Confusables
+partial class Confusables
 {
-    public static async Task<ImmutableArray<KeyValuePair<string, string>>> Fetch(AppArguments arguments)
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Replace(string? value, ImmutableDictionary<int, string?> map)
     {
+        if (value is null) return null;
+
+        StringBuilder res = new(value.Length);
+
+        foreach (int item in value.ToUtf32())
+        {
+            if (map.TryGetValue(item, out string? v))
+            {
+                res.Append(v);
+            }
+            else
+            {
+                //if (item >= 128 && map.Count != 12 && map.Count != 6) Debugger.Break();
+                res.Append(char.ConvertFromUtf32(item));
+            }
+        }
+
+        return res.ToString();
+    }
+
+    static ImmutableDictionary<int, string?>? _confusables;
+
+    public static async Task<ImmutableDictionary<int, string?>> Fetch(AppArguments arguments)
+    {
+        if (_confusables is not null) return _confusables;
+
+        Directory.CreateDirectory(arguments.HttpCachePath);
         string localPath = Path.Combine(arguments.HttpCachePath, "confusables.txt");
         string text;
         if (File.Exists(localPath))
@@ -21,22 +50,32 @@ static class Confusables
             File.WriteAllText(localPath, text);
         }
 
-        List<KeyValuePair<string, string>> res = [];
+        List<KeyValuePair<int, string?>> res = [];
+        Span<Range> cols = stackalloc Range[3];
 
         foreach (string _item in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            string item = _item;
+            ReadOnlySpan<char> item = _item;
             int i = item.IndexOf('#');
             if (i != -1) item = item[..i].TrimEnd();
-            string[] cols = item.Split(';', StringSplitOptions.TrimEntries);
-            if (cols.Length < 2) continue;
+            int colCount = item.Split(cols, ';', StringSplitOptions.TrimEntries);
+            if (colCount < 2) continue;
 
-            string a = string.Concat(cols[0].Split(' ').Select(hex => char.ConvertFromUtf32(int.Parse(hex, NumberStyles.HexNumber))));
-            string b = string.Concat(cols[1].Split(' ').Select(hex => char.ConvertFromUtf32(int.Parse(hex, NumberStyles.HexNumber))));
+            ReadOnlySpan<char> key = item[cols[0]];
+            ReadOnlySpan<char> val = item[cols[1]];
 
-            res.Add(new(a, b));
+            if (key.Count(' ') > 0) throw new FormatException();
+            int keyV = int.Parse(key, NumberStyles.HexNumber);
+
+            StringBuilder valV = new();
+            foreach (Range v in val.Split(' '))
+            {
+                valV.Append(char.ConvertFromUtf32(int.Parse(val[v], NumberStyles.HexNumber)));
+            }
+
+            res.Add(new(keyV, valV.ToString()));
         }
 
-        return [.. res];
+        return _confusables = [.. res];
     }
 }

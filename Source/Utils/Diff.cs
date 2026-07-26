@@ -116,7 +116,7 @@ public class Diff
                 Console.Write(" ");
                 Console.Write(key);
                 Console.Write(" = ");
-                PrintValue(change.New!);
+                PrintValue(change.New);
                 Console.WriteLine();
                 continue;
             }
@@ -179,6 +179,8 @@ public class Diff
             Print(2);
         }
     }
+
+    public void Clear() => _changes.Clear();
 }
 
 public class DiffList(int count)

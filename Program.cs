@@ -1,93 +1,12 @@
 ﻿using System.Collections.Immutable;
-using Google.Apis.YouTube.v3;
-using Google.Apis.YouTube.v3.Data;
 using Logger;
 
 namespace YtPlaylist;
 
 static class Program
 {
-    readonly struct YouTubePlaylistItem(PlaylistItem item)
-    {
-        public string ResourceId => item.Id;
-        public string? VideoId => item.ContentDetails?.VideoId;
-    }
-
-    readonly struct YouTubePlaylist
-    {
-        public static async IAsyncEnumerable<YouTubePlaylistItem> GetItems(YouTubeService youtube, string playlistId)
-        {
-            string? nextPage = null;
-
-            do
-            {
-                PlaylistItemsResource.ListRequest req = youtube.PlaylistItems.List("contentDetails");
-                req.PlaylistId = playlistId;
-                req.MaxResults = 50;
-                req.PageToken = nextPage;
-
-                PlaylistItemListResponse res = await req.ExecuteAsync().ConfigureAwait(false);
-
-                foreach (PlaylistItem? item in res.Items)
-                {
-                    yield return new YouTubePlaylistItem(item);
-                }
-
-                nextPage = res.NextPageToken;
-            }
-            while (nextPage is not null);
-        }
-
-        public static async Task DeleteItem(YouTubeService youtube, YouTubePlaylistItem item)
-        {
-            await youtube.PlaylistItems.Delete(item.ResourceId).ExecuteAsync().ConfigureAwait(false);
-        }
-
-        public static async Task<YouTubePlaylistItem> AddItem(YouTubeService youtube, string playlistId, string videoId)
-        {
-            return new YouTubePlaylistItem(await youtube.PlaylistItems.Insert(new PlaylistItem()
-            {
-                Snippet = new PlaylistItemSnippet()
-                {
-                    PlaylistId = playlistId,
-                    ResourceId = new() { Kind = "youtube#video", VideoId = videoId }
-                }
-            }, "snippet").ExecuteAsync().ConfigureAwait(false));
-        }
-    }
-
     static int Main(string[] args)
     {
-#if DEBUG
-        args = (
-            $"--playlist PL3pKDp-F7PPuo3MIneE9MX77zKcEiw-QZ " +
-            $"--playlist PL3pKDp-F7PPu_1Sz9dMu3GLkZVAw70pL1 " +
-            $"--playlist PL3pKDp-F7PPu785eiO43ccKgaOCLhpTBJ " +
-            $"--playlist PL3pKDp-F7PPuI_BsyPZfXtNySJ5By-Yrb " +
-            $"--playlist PL3pKDp-F7PPvdl7-_7m6iZ_KNdIH70abQ " +
-            $"--playlist PL3pKDp-F7PPu0DSnRGuNUCttOO4ZjGA2T " +
-            $"--playlist PL3pKDp-F7PPvEzNztKC-Auf-1TdPqjIIN " +
-            $"--playlist PL3pKDp-F7PPvEi_vgUWlMjyAqT8uCu_KA " +
-            $"--playlist PL3pKDp-F7PPtX38yvSUEDQb24g-EQe-gQ " +
-            $"--playlist PL3pKDp-F7PPv1HlqI3VuTd1Hj7DzfmNCi " +
-            $"--playlist PL3pKDp-F7PPueGCqGhQiNYE5RQCG5fwLC " +
-            $"--playlist PL3pKDp-F7PPsMhUgKJwprtal_vP0aulsC " +
-            $"--playlist PL3pKDp-F7PPu_gEzx1zeoY7zm0uQ6WOTV " +
-            $"--playlist PL3pKDp-F7PPvsLhK3ufdyBuu73uL6I4WD " +
-            $"--playlist PL3pKDp-F7PPuQ90i5efLdi9ZurVjNXXSz " +
-            $"--playlist PL3pKDp-F7PPt340bvoRQ-VvPBOhlM8uCu " +
-            $"--playlist PL3pKDp-F7PPsdm2p3bMOEw0kQA8FhE5kJ " +
-            $"--playlist PL3pKDp-F7PPuRGcaVhxoyK2PzR-1xk4jw " +
-            $"--playlist PL3pKDp-F7PPu9t2xlu6DI-5J-ztL1Ddi- " +
-            $"--playlist PL3pKDp-F7PPvAKSEGEUpmrfj6fN4M8hRd " +
-            $"--httpcache /home/bb/Projects/YtPlaylist/cache " +
-            $"--output /d2/Music " +
-            $"--ignoremetawarnings " +
-            //$"--usecache " +
-            //$"--dry " +
-            string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-#endif
-
         List<string> playlistIds = [];
         string? outputPath = null;
         bool useCache = false;
@@ -96,12 +15,19 @@ static class Program
         bool metadata = true;
         bool lyrics = true;
         string? httpCachePath = null;
-        string? youTubeCredentialsPath = null;
+        string? youtubeCredentialsPath = null;
+        string? soundcloudCredentialsPath = null;
+        string? cookiesPath = null;
         bool ignoreMetaWarnings = false;
         bool recreateMetadata = false;
         bool checkRedundancy = false;
         bool checkDuplicates = false;
         bool regenerateAudicousPlaylists = false;
+        bool syncSoundCloudPlaylists = false;
+        bool ignoreSoundCloudMatchWarnings = false;
+        bool saveIntermediateTags = false;
+        List<string> soundcloudIgnore = [];
+        List<string> additionalYtDlpArguments = [];
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -131,28 +57,28 @@ static class Program
 
                     outputPath = args[++i];
                     break;
-                case "--usecache":
+                case "--use-cache":
                     useCache = true;
                     break;
-                case "--resetmeta":
+                case "--reset-meta":
                     recreateMetadata = true;
                     break;
                 case "--dry":
                     dryRun = true;
                     break;
-                case "--nodownload":
+                case "--no-download":
                     download = false;
                     break;
-                case "--nometadata":
+                case "--no-metadata":
                     metadata = false;
                     break;
-                case "--nolyrics":
+                case "--no-lyrics":
                     lyrics = false;
                     break;
-                case "--ignoremetawarnings":
+                case "--ignore-meta-warnings":
                     ignoreMetaWarnings = true;
                     break;
-                case "--httpcache":
+                case "--http-cache":
                     if (httpCachePath is not null)
                     {
                         Log.Error($"HTTP cache path already defined");
@@ -167,8 +93,8 @@ static class Program
 
                     httpCachePath = args[++i];
                     break;
-                case "--ytcredentials":
-                    if (youTubeCredentialsPath is not null)
+                case "--youtube-credentials":
+                    if (youtubeCredentialsPath is not null)
                     {
                         Log.Error($"YouTube credentials path already defined");
                         return 1;
@@ -180,7 +106,37 @@ static class Program
                         return 1;
                     }
 
-                    youTubeCredentialsPath = args[++i];
+                    youtubeCredentialsPath = args[++i];
+                    break;
+                case "--soundcloud-credentials":
+                    if (soundcloudCredentialsPath is not null)
+                    {
+                        Log.Error($"SoundCloud credentials path already defined");
+                        return 1;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    soundcloudCredentialsPath = args[++i];
+                    break;
+                case "--cookies":
+                    if (cookiesPath is not null)
+                    {
+                        Log.Error($"Cookies path already defined");
+                        return 1;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    cookiesPath = args[++i];
                     break;
                 case "--check-redundancy":
                     checkRedundancy = true;
@@ -190,6 +146,33 @@ static class Program
                     break;
                 case "--regenerate-audicous-playlists":
                     regenerateAudicousPlaylists = true;
+                    break;
+                case "--sync-soundcloud-playlists":
+                    syncSoundCloudPlaylists = true;
+                    break;
+                case "--ignore-soundcloud-match-warnings":
+                    ignoreSoundCloudMatchWarnings = true;
+                    break;
+                case "--soundcloud-ignore":
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a value after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    soundcloudIgnore.AddRange(args[++i]);
+                    break;
+                case "--save-intermediate-tags":
+                    saveIntermediateTags = true;
+                    break;
+                case "--ytdlp":
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a value after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    additionalYtDlpArguments.AddRange(args[++i]);
                     break;
                 default:
                     Log.Error($"Unexpected argument {args[i]}");
@@ -202,7 +185,7 @@ static class Program
             Console.WriteLine("YouTube Playlist Downloader");
             Console.WriteLine("");
             Console.WriteLine("Usage:");
-            Console.WriteLine("YtPlaylist <-p|--playlist Playlist Id> <-o|--output Output Directory>");
+            Console.WriteLine("ytsync <-p|--playlist Playlist Id> <-o|--output Output Directory>");
             return 1;
         }
 
@@ -245,11 +228,18 @@ static class Program
                 OutputPath = outputPath,
                 HttpCachePath = httpCachePath ?? "./cache",
                 IgnoreMetaWarnings = ignoreMetaWarnings,
-                YouTubeCredentialsPath = youTubeCredentialsPath,
+                YouTubeCredentialsPath = youtubeCredentialsPath,
+                SoundCloudCredentialsPath = soundcloudCredentialsPath,
+                CookiesPath = cookiesPath,
                 RecreateMetadata = recreateMetadata,
                 CheckDuplicates = checkDuplicates,
                 CheckRedundancy = checkRedundancy,
                 RegenerateAudicousPlaylists = regenerateAudicousPlaylists,
+                SyncSoundCloudPlaylists = syncSoundCloudPlaylists,
+                SoundCloudIgnore = [.. soundcloudIgnore],
+                IgnoreSoundCloudMatchWarnings = ignoreSoundCloudMatchWarnings,
+                SaveIntermediateTags = saveIntermediateTags,
+                YtDlpAdditionalArguments = [.. additionalYtDlpArguments],
             },
         }.Run(cancellationTokenSource.Token).ContinueWith(task =>
         {

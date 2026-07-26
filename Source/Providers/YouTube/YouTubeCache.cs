@@ -8,7 +8,7 @@ namespace YtPlaylist;
 
 public sealed class YouTubeCache(string path)
 {
-    public void SavePlaylist(Playlist playlist)
+    public void SavePlaylist(YoutubeExplode.Playlists.Playlist playlist)
     {
         Directory.CreateDirectory(path);
         string filePath = Path.Combine(path, $"p{playlist.Id.Value}");
@@ -37,7 +37,7 @@ public sealed class YouTubeCache(string path)
         }
     }
 
-    public bool LoadPlaylist(string playlistId, [NotNullWhen(true)] out Playlist? playlist)
+    public bool LoadPlaylist(string playlistId, [NotNullWhen(true)] out YoutubeExplode.Playlists.Playlist? playlist)
     {
         string filePath = Path.Combine(path, $"p{playlistId}");
         if (!File.Exists(filePath))
@@ -76,7 +76,7 @@ public sealed class YouTubeCache(string path)
             return false;
         }
 
-        playlist = new Playlist(id, title, author, description, count, thumbnails);
+        playlist = new YoutubeExplode.Playlists.Playlist(id, title, author, description, count, thumbnails);
         return true;
     }
 

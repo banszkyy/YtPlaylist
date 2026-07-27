@@ -327,7 +327,7 @@ public partial class SoundCloudClient : IDisposable
             }
             if (pageMeta.Hydrations.TryGetValue("meUser", out JsonElement _meUser))
             {
-                MeUserHydration meUser = _meUser.Deserialize<MeUserHydration>() ?? throw new JsonException();
+                Me meUser = _meUser.Deserialize<Me>() ?? throw new JsonException();
                 trackingUserId = meUser.Id;
             }
 

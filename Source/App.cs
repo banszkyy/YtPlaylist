@@ -61,7 +61,7 @@ sealed class App
 
         using (YoutubeClient youtube = new())
         {
-            Log.MajorAction($"Fetching playlists");
+            Log.MajorAction($"Fetching playlists metadata");
 
             using (ProgressBar progressBar = new() { MaxWidth = 40 })
             {
@@ -86,7 +86,7 @@ sealed class App
                 }
             }
 
-            Log.MajorAction($"Indexing");
+            Log.MajorAction($"Indexing local files");
 
             using (ProgressBar progressBar = new() { MaxWidth = 40 })
             {
@@ -167,7 +167,7 @@ sealed class App
                 }
             }
 
-            Log.MajorAction($"Downloading music videos");
+            Log.MajorAction($"Fetching & downloading playlist contents");
 
             using (ProgressBar progressBar = new() { MaxWidth = 40 })
             {
@@ -955,7 +955,7 @@ sealed class App
             SoundCloudCredentials? credentials = JsonSerializer.Deserialize<SoundCloudCredentials>(File.ReadAllText(Arguments.SoundCloudCredentialsPath))!;
             Log.Section($"Synchronizing SoundCloud playlists");
 
-            List<Change<string>> changes = [];
+            List<Change<(Playlist Playlist, Track Track)>> changes = [];
 
             try
             {
@@ -968,7 +968,7 @@ sealed class App
                 await soundCloudClient.Initialize(cancellationToken);
 
                 Log.MinorAction($"Fetching user information");
-                MeResponse me = await soundCloudClient.GetMe(cancellationToken);
+                Me me = await soundCloudClient.GetMe(cancellationToken);
 
                 List<(Playlist Playlist, int TotalMatches)> statisticsPerPlaylist = [];
                 int totalSearches = 0;
@@ -987,10 +987,10 @@ sealed class App
 
                     Log.MinorAction($"Generating playlist {playlistContent.Title}");
 
-                    List<SearchResultItem> tracks = [];
+                    List<Track> tracks = [];
                     foreach (MusicFile musicFile in playlistContent.Musics)
                     {
-                        SearchResultItem? track = await SoundCloudUtils.MatchTrack(musicFile, library, soundCloudClient, Arguments, cancellationToken);
+                        Track? track = await SoundCloudUtils.MatchTrack(musicFile, library, soundCloudClient, Arguments, cancellationToken);
 
                         if (track is not null)
                         {
@@ -1009,9 +1009,9 @@ sealed class App
                     statisticsPerPlaylist.Add((playlistContent, tracks.Count));
                     if (existingScPlaylist is null)
                     {
-                        foreach (SearchResultItem track in tracks)
+                        foreach (Track track in tracks)
                         {
-                            changes.Add(new($"[{playlistContent.Title}] {track.Title}", ChangeType.Create));
+                            changes.Add(new((playlistContent, track), ChangeType.Create));
                         }
 
                         if (tracks.Count == 0)
@@ -1036,16 +1036,16 @@ sealed class App
                     }
                     else
                     {
-                        foreach (SearchResultItem track in tracks)
+                        foreach (Track track in tracks)
                         {
                             if (existingScPlaylist.Tracks.Any(v => v.Id == track.Id)) continue;
-                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title ?? track.PermalinkUrl ?? $"<{track.Id}>"}", ChangeType.Create));
+                            changes.Add(new((playlistContent, track), ChangeType.Create));
                         }
 
                         foreach (Track track in existingScPlaylist.Tracks)
                         {
                             if (tracks.Any(v => v.Id == track.Id)) continue;
-                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title ?? track.PermalinkUrl ?? $"<{track.Id}>"}", ChangeType.Delete));
+                            changes.Add(new((playlistContent, track), ChangeType.Delete));
                         }
 
                         if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks.Select(v => v.Id)))
@@ -1057,7 +1057,7 @@ sealed class App
                             Log.MinorAction($"Updating playlist {playlistContent.Title}");
                             if (!Arguments.DryRun)
                             {
-                                var res = await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
+                                await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
                                 {
                                     Permalink = existingScPlaylist.Permalink,
                                     Title = playlistContent.Title,
@@ -1090,13 +1090,36 @@ sealed class App
             {
                 Log.Error(ex.Message);
             }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+            }
 
             if (changes.Count > 0)
             {
                 Console.WriteLine();
             }
 
-            YtPlaylist.Changes.Print(changes);
+            YtPlaylist.Changes.Print(changes, v =>
+            {
+                Console.Write('[');
+                Console.Write(v.Playlist.Title);
+                Console.Write(']');
+                Console.Write(' ');
+                if (!string.IsNullOrWhiteSpace(v.Track.Title))
+                {
+                    Console.Write(v.Track.Title);
+                }
+                else if (!string.IsNullOrWhiteSpace(v.Track.PermalinkUrl))
+                {
+                    Console.Write(v.Track.PermalinkUrl);
+                }
+                else
+                {
+                    Console.Write($"<{v.Track.Id}>");
+                }
+                Console.WriteLine();
+            });
         }
 
         Log.Section($"Saving meta tags");

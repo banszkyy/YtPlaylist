@@ -11,7 +11,7 @@ namespace YtPlaylist;
 
 static class SoundCloudUtils
 {
-    public static async Task<SearchResultItem?> MatchTrack(MusicFile musicFile, Library library, SoundCloudClient soundCloudClient, AppArguments arguments, CancellationToken cancellationToken = default)
+    public static async Task<Track?> MatchTrack(MusicFile musicFile, Library library, SoundCloudClient soundCloudClient, AppArguments arguments, CancellationToken cancellationToken = default)
     {
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
@@ -117,10 +117,10 @@ static class SoundCloudUtils
             return null;
         }
 
-        SearchResultItem? bestMatch = null;
+        Track? bestMatch = null;
         int bestMatchScore = 0;
         ImmutableArray<string> bestMatchIssues = [];
-        foreach (SearchResultItem item in queryRes.Collection)
+        foreach (Track item in queryRes.Collection)
         {
             if (item.Kind != "track")
             {
@@ -191,8 +191,9 @@ static class SoundCloudUtils
                     artistMatchIssues.Add($"Artist \"{string.Join(" & ", scArtists)}\" doesn't match with \"{string.Join(" & ", searchingMeta.Performers)}\"");
                 }
             }
-            else if (searchingMeta.Performers.Contains(Confusables.Replace(item.User.Username, Confusables.Equivalents), metaStringEqualityComparer)
-                    || searchingMeta.Performers.Contains(item.User.Permalink, metaStringEqualityComparer))
+            else if (item.User is not null
+                    && (searchingMeta.Performers.Contains(Confusables.Replace(item.User.Username, Confusables.Equivalents), metaStringEqualityComparer)
+                    || searchingMeta.Performers.Contains(item.User.Permalink, metaStringEqualityComparer)))
             {
                 if (onlyVerifiedArtists && (item.User.Verified ?? false))
                 {

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace YtPlaylist.SoundCloud;
 
-public class MeResponse
+public class Me
 {
     [JsonPropertyName("avatar_url")] public string? AvatarUrl { get; init; }
     [JsonPropertyName("blocked_tracks_count")] public long BlockedTracksCount { get; init; }

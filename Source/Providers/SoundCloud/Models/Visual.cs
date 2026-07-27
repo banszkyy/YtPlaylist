@@ -10,6 +10,5 @@ public class Visual
     [JsonPropertyName("enabled")] public bool? Enabled { get; init; }
     [JsonPropertyName("visuals")] public IReadOnlyList<Visual>? Visuals { get; init; }
     [JsonPropertyName("tracking")] public object? Tracking { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("link")] public string? Link { get; init; }
 }

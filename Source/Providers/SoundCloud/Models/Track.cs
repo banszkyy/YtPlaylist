@@ -5,7 +5,7 @@ namespace YtPlaylist.SoundCloud;
 public class Track
 {
     [JsonPropertyName("artwork_url")] public string? ArtworkUrl { get; init; }
-    [JsonPropertyName("caption")] public object? Caption { get; init; }
+    [JsonPropertyName("caption")] public string? Caption { get; init; }
     [JsonPropertyName("commentable")] public bool? Commentable { get; init; }
     [JsonPropertyName("comment_count")] public long? CommentCount { get; init; }
     [JsonPropertyName("created_at")] public DateTimeOffset? CreatedAt { get; init; }
@@ -41,7 +41,7 @@ public class Track
     [JsonPropertyName("uri")] public string? Uri { get; init; }
     [JsonPropertyName("urn")] public string? Urn { get; init; }
     [JsonPropertyName("user_id")] public long? UserId { get; init; }
-    [JsonPropertyName("visuals")] public object? Visuals { get; init; }
+    [JsonPropertyName("visuals")] public Visuals? Visuals { get; init; }
     [JsonPropertyName("waveform_url")] public string? WaveformUrl { get; init; }
     [JsonPropertyName("display_date")] public DateTimeOffset? DisplayDate { get; init; }
     [JsonPropertyName("media")] public Media? Media { get; init; }

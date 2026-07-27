@@ -230,7 +230,7 @@ public partial class SoundCloudClient
         HandleResponse(res);
     }
 
-    public async Task<MeResponse> GetMe(CancellationToken cancellationToken = default)
+    public async Task<Me> GetMe(CancellationToken cancellationToken = default)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"/me?{BuildQueryParameters()}", UriKind.Relative));
         request.Headers.Clear();
@@ -241,7 +241,7 @@ public partial class SoundCloudClient
         HandleResponse(res);
 
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken: cancellationToken);
-        return body.Deserialize<MeResponse>() ?? throw new JsonException();
+        return body.Deserialize<Me>() ?? throw new JsonException();
     }
 
     public async Task<UpdatePlaylistResponse> UpdatePlaylistItems(long playlistId, IEnumerable<long> tracks, CancellationToken cancellationToken = default)
@@ -299,7 +299,7 @@ public partial class SoundCloudClient
         return body.Deserialize<Playlist>() ?? throw new JsonException();
     }
 
-    public async Task<TracksResponse> GetTracks(IEnumerable<long> tracks, CancellationToken cancellationToken = default)
+    public async Task<Track> GetTracks(IEnumerable<long> tracks, CancellationToken cancellationToken = default)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"/tracks?{BuildQueryParameters(
             ("ids", string.Join(',', tracks))
@@ -312,6 +312,6 @@ public partial class SoundCloudClient
         HandleResponse(res);
 
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
-        return body.Deserialize<TracksResponse>() ?? throw new JsonException();
+        return body.Deserialize<Track>() ?? throw new JsonException();
     }
 }

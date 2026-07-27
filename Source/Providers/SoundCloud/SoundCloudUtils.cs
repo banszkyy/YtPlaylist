@@ -292,7 +292,46 @@ static class SoundCloudUtils
                 }
             }
 
-            int score = (artistMatch ? 1 : 0) + (titleMatch ? 1 : 0) + (remixMatch ? 1 : 0);
+            int score = 10 + (artistMatch ? 1 : 0) + (titleMatch ? 1 : 0) + (remixMatch ? 1 : 0);
+
+            if (!artistMatch || !titleMatch || !remixMatch)
+            {
+                static string[] GetKeywords(string v)
+                {
+                    return v.SplitAll([' ', ',', '.', ':', '-', '~', '&', '|', '(', ')', '[', ']', '/'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                }
+
+                List<string> trackKeywords = [.. GetKeywords(Confusables.Replace(item.Title ?? string.Empty, Confusables.Equivalents))];
+                List<string> queryKeywords = [.. GetKeywords($"{string.Join(' ', searchingMeta.Performers)} {searchingMeta.Title} {searchingMeta.RemixedBy}")];
+
+                foreach (string dummy in new string[]
+                {
+                    "ft", "feat", "prod", "remix", "free", "x", "official", "audio", "video", "download", "feat_", "prod_"
+                })
+                {
+                    trackKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
+                    queryKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
+                }
+
+                for (int i = 0; i < queryKeywords.Count; i++)
+                {
+                    string keyword = queryKeywords[i];
+                    int removed = trackKeywords.RemoveAll(v => v.Equals(keyword, StringComparison.InvariantCultureIgnoreCase));
+                    if (removed > 0) queryKeywords.RemoveAt(i--);
+                }
+
+                if (queryKeywords.Count > 0 || trackKeywords.Count > 0)
+                {
+                }
+                else
+                {
+                    artistMatch = true;
+                    titleMatch = true;
+                    remixMatch = (item.Title ?? string.Empty).Contains("remix", StringComparison.InvariantCultureIgnoreCase) == !string.IsNullOrEmpty(searchingMeta.RemixedBy);
+
+                    score = (artistMatch ? 1 : 0) + (titleMatch ? 1 : 0) + (remixMatch ? 1 : 0);
+                }
+            }
 
             if (artistMatch) artistMatchIssues.Clear();
             else if (artistMatchIssues.Count == 0) artistMatchIssues.Add($"Artists not matched");

@@ -7,6 +7,72 @@ namespace YtPlaylist;
 
 static class Extensions
 {
+    public static string[] SplitAll(this string value, char[] separators, StringSplitOptions options = StringSplitOptions.None)
+    {
+        List<string> res = [];
+
+        int j = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (separators.Contains(value[i]))
+            {
+                string v = value[j..i];
+                if (options.HasFlag(StringSplitOptions.TrimEntries)) v = v.Trim();
+                if (options.HasFlag(StringSplitOptions.RemoveEmptyEntries) && v.Length == 0) goto skip;
+                res.Add(v);
+            skip:
+                j = i + 1;
+            }
+        }
+
+        if (j < value.Length)
+        {
+            string v = value[j..];
+            if (options.HasFlag(StringSplitOptions.TrimEntries)) v = v.Trim();
+            if (!options.HasFlag(StringSplitOptions.RemoveEmptyEntries) || v.Length != 0)
+            {
+                res.Add(v);
+            }
+        }
+
+        return [.. res];
+    }
+
+    public static string[] SplitAll(this string value, string[] separators, StringSplitOptions options = StringSplitOptions.None)
+    {
+        List<string> res = [];
+
+        int j = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            foreach (string separator in separators)
+            {
+                if (value[i..].StartsWith(separator))
+                {
+                    string v = value[j..i];
+                    if (options.HasFlag(StringSplitOptions.TrimEntries)) v = v.Trim();
+                    if (options.HasFlag(StringSplitOptions.RemoveEmptyEntries) && v.Length == 0) goto skip;
+                    res.Add(v);
+                skip:
+                    j = i + separator.Length;
+                    break;
+                }
+            }
+        }
+
+        if (j < value.Length)
+        {
+            string v = value[j..];
+            if (options.HasFlag(StringSplitOptions.TrimEntries)) v = v.Trim();
+            if (!options.HasFlag(StringSplitOptions.RemoveEmptyEntries) || v.Length != 0)
+            {
+                res.Add(v);
+            }
+        }
+
+        return [.. res];
+    }
+
     public static bool IsEmpty(this IEnumerable objects)
     {
         IEnumerator enumerator = objects.GetEnumerator();

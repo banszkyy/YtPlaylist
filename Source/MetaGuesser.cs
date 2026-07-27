@@ -76,7 +76,7 @@ public static partial class MetaGuesser
             while (l > 0 && !BracketPairs.TryGetValue(title[l], out closingBracket)) l--;
             if (closingBracket != default)
             {
-                while (r + 1 < title.Length && title[r] != closingBracket) r++;
+                while (r < title.Length && title[r] != closingBracket) r++;
 
                 ReadOnlySpan<char> part = title[(l + 1)..r];
 
@@ -87,7 +87,7 @@ public static partial class MetaGuesser
                     part = part[..^suffix.Length].TrimEnd();
 
                     remixedBy = part.ToString();
-                    title = title[..l].ToString().TrimEnd() + title[(r + 1)..].ToString();
+                    title = title[..l].ToString().TrimEnd() + ((r + 1 >= title.Length) ? string.Empty : title[(r + 1)..].ToString());
                     return;
                 }
             }

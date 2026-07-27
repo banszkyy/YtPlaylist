@@ -1039,13 +1039,13 @@ sealed class App
                         foreach (SearchResultItem track in tracks)
                         {
                             if (existingScPlaylist.Tracks.Any(v => v.Id == track.Id)) continue;
-                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title}", ChangeType.Create));
+                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title ?? track.PermalinkUrl ?? $"<{track.Id}>"}", ChangeType.Create));
                         }
 
                         foreach (Track track in existingScPlaylist.Tracks)
                         {
                             if (tracks.Any(v => v.Id == track.Id)) continue;
-                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title}", ChangeType.Delete));
+                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title ?? track.PermalinkUrl ?? $"<{track.Id}>"}", ChangeType.Delete));
                         }
 
                         if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks.Select(v => v.Id)))

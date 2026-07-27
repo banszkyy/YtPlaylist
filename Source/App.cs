@@ -25,7 +25,7 @@ sealed class App
     static readonly TimeSpan CacheTime = TimeSpan.FromDays(500);
     static ImmutableDictionary<int, string?> _confusables = [];
     public const string UserAgent = "github.com/banszkyy";
-    readonly List<Change> Changes = [];
+    readonly List<Change<MusicFile>> Changes = [];
 
     public async Task Run(CancellationToken cancellationToken = default)
     {
@@ -955,6 +955,8 @@ sealed class App
             SoundCloudCredentials? credentials = JsonSerializer.Deserialize<SoundCloudCredentials>(File.ReadAllText(Arguments.SoundCloudCredentialsPath))!;
             Log.Section($"Synchronizing SoundCloud playlists");
 
+            List<Change<string>> changes = [];
+
             try
             {
                 using SoundCloudClient soundCloudClient = new(credentials, cookies, new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "SoundCloud"))
@@ -985,14 +987,14 @@ sealed class App
 
                     Log.MinorAction($"Generating playlist {playlistContent.Title}");
 
-                    List<long> tracks = [];
+                    List<SearchResultItem> tracks = [];
                     foreach (MusicFile musicFile in playlistContent.Musics)
                     {
                         SearchResultItem? track = await SoundCloudUtils.MatchTrack(musicFile, library, soundCloudClient, Arguments, cancellationToken);
 
                         if (track is not null)
                         {
-                            tracks.Add(track.Id);
+                            tracks.Add(track);
                         }
                     }
 
@@ -1002,6 +1004,11 @@ sealed class App
                     statisticsPerPlaylist.Add((playlistContent, tracks.Count));
                     if (existingScPlaylist is null)
                     {
+                        foreach (SearchResultItem track in tracks)
+                        {
+                            changes.Add(new($"[{playlistContent.Title}] {track.Title}", ChangeType.Create));
+                        }
+
                         if (tracks.Count == 0)
                         {
                             Log.Warning($"Skipping creating playlist {playlistContent.Title} because it would be empty");
@@ -1014,14 +1021,26 @@ sealed class App
                                 Permalink = string.Empty,
                                 Title = playlistContent.Title,
                                 Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                Tracks = tracks,
+                                Tracks = [.. tracks.Select(v => v.Id)],
                                 Sharing = "private",
                             }, cancellationToken);
                         }
                     }
                     else
                     {
-                        if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks))
+                        foreach (SearchResultItem track in tracks)
+                        {
+                            if (existingScPlaylist.Tracks.Any(v => v.Id == track.Id)) continue;
+                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title}", ChangeType.Create));
+                        }
+
+                        foreach (Track track in existingScPlaylist.Tracks)
+                        {
+                            if (tracks.Any(v => v.Id == track.Id)) continue;
+                            changes.Add(new Change<string>($"[{playlistContent.Title}] {track.Title}", ChangeType.Delete));
+                        }
+
+                        if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks.Select(v => v.Id)))
                         {
                             Log.MinorAction($"Playlist {playlistContent.Title} wasn't modified");
                         }
@@ -1033,7 +1052,7 @@ sealed class App
                                 Permalink = existingScPlaylist.Permalink,
                                 Title = playlistContent.Title,
                                 Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                Tracks = [.. tracks],
+                                Tracks = [.. tracks.Select(v => v.Id)],
                                 Sharing = "private",
                                 ArtworkUrl = existingScPlaylist.ArtworkUrl,
                                 Genre = existingScPlaylist.Genre ?? string.Empty,
@@ -1060,6 +1079,14 @@ sealed class App
             {
                 Log.Error(ex.Message);
             }
+
+            if (changes.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine();
+            }
+
+            YtPlaylist.Changes.Print(changes);
         }
 
         Log.Section($"Saving meta tags");
@@ -1080,34 +1107,18 @@ sealed class App
             Console.WriteLine();
         }
 
-        foreach (Change change in Changes.OrderBy(v => v.Type))
+        YtPlaylist.Changes.Print(Changes, static v =>
         {
-            switch (change.Type)
+            Console.Write($"[{v.Playlist.Title}] ");
+            if (v.PlaylistVideo is null)
             {
-                case ChangeType.Create:
-                    if (Changes.Any(v => v.File == change.File && v.Type is ChangeType.Delete)) continue;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.Write(" + ");
-                    Console.ResetColor();
-                    break;
-                case ChangeType.Modify:
-                    if (Changes.Any(v => v.File == change.File && v.Type is ChangeType.Create or ChangeType.Delete)) continue;
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.Write(" x ");
-                    Console.ResetColor();
-                    break;
-                case ChangeType.Delete:
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.Write(" - ");
-                    Console.ResetColor();
-                    break;
-                default:
-                    throw new UnreachableException();
+                Console.WriteLine(Path.GetFileNameWithoutExtension(v.Path));
             }
-
-            Console.Write($"[{change.File.Playlist.Title}] ");
-            Console.WriteLine(change.File.PlaylistVideo is null ? Path.GetFileNameWithoutExtension(change.File.Path) : $"{change.File.PlaylistVideo.Author.ChannelTitle} - {change.File.PlaylistVideo.Title}");
-        }
+            else
+            {
+                Console.WriteLine($"{v.PlaylistVideo.Author.ChannelTitle} - {v.PlaylistVideo.Title}");
+            }
+        });
 
         Console.WriteLine();
     }

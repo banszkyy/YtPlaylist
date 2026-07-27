@@ -52,5 +52,5 @@ public class TracksResponse
     [JsonPropertyName("policy")] public string? Policy { get; set; }
     [JsonPropertyName("user")] public User? User { get; set; }
 
-    public override string? ToString() => Title;
+    public override string ToString() => Title ?? $"<{Id}>";
 }

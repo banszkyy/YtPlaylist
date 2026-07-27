@@ -39,5 +39,5 @@ public class User
     [JsonPropertyName("date_of_birth")] public object? DateOfBirth { get; init; }
     [JsonPropertyName("url")] public string? Url { get; init; }
 
-    public override string? ToString() => Username;
+    public override string ToString() => Username ?? $"<{Id}>";
 }

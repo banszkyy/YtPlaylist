@@ -20,7 +20,7 @@ public partial class SoundCloudClient : IDisposable
     readonly HttpClient client;
     readonly IRequestCache? cache;
     DateTimeOffset lastRequestTime;
-    const int CooldownMilliseconds = 1000;
+    const int CooldownMilliseconds = 500;
 
     readonly string? token;
     readonly string? sessionId;

@@ -994,6 +994,11 @@ sealed class App
 
                         if (track is not null)
                         {
+                            if (tracks.Any(v => v.Id == track.Id))
+                            {
+                                Log.Warning($"Skipping adding track {track.Title} multiple times");
+                                continue;
+                            }
                             tracks.Add(track);
                         }
                     }
@@ -1015,15 +1020,18 @@ sealed class App
                         }
                         else
                         {
-                            Log.MinorAction($"Creating playlist {playlistContent.Title} ({tracks.Count}/{playlistContent.Musics.Count})");
-                            await soundCloudClient.CreatePlaylist(new()
+                            Log.MinorAction($"Creating playlist {playlistContent.Title}");
+                            if (!Arguments.DryRun)
                             {
-                                Permalink = string.Empty,
-                                Title = playlistContent.Title,
-                                Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                Tracks = [.. tracks.Select(v => v.Id)],
-                                Sharing = "private",
-                            }, cancellationToken);
+                                await soundCloudClient.CreatePlaylist(new()
+                                {
+                                    Permalink = string.Empty,
+                                    Title = playlistContent.Title,
+                                    Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
+                                    Tracks = [.. tracks.Select(v => v.Id)],
+                                    Sharing = "private",
+                                }, cancellationToken);
+                            }
                         }
                     }
                     else
@@ -1046,19 +1054,22 @@ sealed class App
                         }
                         else
                         {
-                            Log.MinorAction($"Updating playlist {playlistContent.Title} ({tracks.Count}/{playlistContent.Musics.Count})");
-                            await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
+                            Log.MinorAction($"Updating playlist {playlistContent.Title}");
+                            if (!Arguments.DryRun)
                             {
-                                Permalink = existingScPlaylist.Permalink,
-                                Title = playlistContent.Title,
-                                Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                Tracks = [.. tracks.Select(v => v.Id)],
-                                Sharing = "private",
-                                ArtworkUrl = existingScPlaylist.ArtworkUrl,
-                                Genre = existingScPlaylist.Genre ?? string.Empty,
-                                ReleaseDate = existingScPlaylist.ReleaseDate,
-                                TagList = existingScPlaylist.TagList ?? string.Empty,
-                            }, cancellationToken);
+                                var res = await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
+                                {
+                                    Permalink = existingScPlaylist.Permalink,
+                                    Title = playlistContent.Title,
+                                    Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
+                                    Tracks = [.. tracks.Select(v => v.Id)],
+                                    Sharing = "private",
+                                    ArtworkUrl = existingScPlaylist.ArtworkUrl,
+                                    Genre = existingScPlaylist.Genre ?? string.Empty,
+                                    ReleaseDate = existingScPlaylist.ReleaseDate,
+                                    TagList = existingScPlaylist.TagList ?? string.Empty,
+                                }, cancellationToken);
+                            }
                         }
                     }
                 }
@@ -1083,7 +1094,6 @@ sealed class App
             if (changes.Count > 0)
             {
                 Console.WriteLine();
-                Console.WriteLine();
             }
 
             YtPlaylist.Changes.Print(changes);
@@ -1103,7 +1113,6 @@ sealed class App
 
         if (Changes.Count > 0)
         {
-            Console.WriteLine();
             Console.WriteLine();
         }
 

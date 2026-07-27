@@ -58,5 +58,5 @@ public class SearchResultItem
     [JsonPropertyName("policy")] public string? Policy { get; init; }
     [JsonPropertyName("user")] public required User User { get; init; }
 
-    public override string? ToString() => Title;
+    public override string ToString() => Title ?? $"<{Id}>";
 }

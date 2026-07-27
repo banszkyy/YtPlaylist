@@ -51,4 +51,6 @@ public class Track
     [JsonPropertyName("monetization_model")] public string? MonetizationModel { get; init; }
     [JsonPropertyName("policy")] public string? Policy { get; init; }
     [JsonPropertyName("user")] public User? User { get; init; }
+
+    public override string ToString() => Title ?? $"<{Id}>";
 }

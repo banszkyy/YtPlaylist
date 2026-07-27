@@ -38,5 +38,5 @@ public class Playlist
     [JsonPropertyName("tracks")] public required IReadOnlyList<Track> Tracks { get; init; }
     [JsonPropertyName("track_count")] public long TrackCount { get; init; }
 
-    public override string? ToString() => Title;
+    public override string ToString() => Title ?? $"<{Id}>";
 }

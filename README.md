@@ -35,6 +35,10 @@ Downloads and synchronizes YouTube playlists as MP3 files so you can listen to t
 
 If you specify `--youtube-credentials`, you can also remove the duplicated music from the command line.
 
+### SoundCloud sync
+
+- **WIP** Synchronizes the YouTube playlists to SoundCloud
+
 ## Example Usage
 
 ```bash

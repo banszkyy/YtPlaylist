@@ -32,7 +32,9 @@ static class SoundCloudUtils
             return null;
         }
 
-        MetaStringEqualityComparer metaStringEqualityComparer = new(Confusables.CombineMaps(await Confusables.Fetch(arguments), Confusables.Accents), StringComparison.InvariantCultureIgnoreCase);
+        ImmutableDictionary<int, string?> confusablesAccentsMap = Confusables.CombineMaps(await Confusables.Fetch(arguments), Confusables.Accents);
+        ImmutableDictionary<int, string?> equivalentsAccentsMap = Confusables.CombineMaps(Confusables.Equivalents, Confusables.Accents);
+        MetaStringEqualityComparer metaStringEqualityComparer = new(confusablesAccentsMap, StringComparison.InvariantCultureIgnoreCase);
 
         List<string> artistPermalinks = [];
 
@@ -149,12 +151,12 @@ static class SoundCloudUtils
 
                 foreach (string suffix in new string[]
                 {
-                    " music",
-                    " official",
+                    "music",
+                    "official",
                 })
                 {
-                    a = [.. a.Select(v => v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ? v[..^suffix.Length] : v)];
-                    b = [.. b.Select(v => v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ? v[..^suffix.Length] : v)];
+                    a = [.. a.Select(v => v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ? v[..^suffix.Length].TrimEnd() : v)];
+                    b = [.. b.Select(v => v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ? v[..^suffix.Length].TrimEnd() : v)];
                 }
 
                 int overlap = 0;
@@ -297,21 +299,33 @@ static class SoundCloudUtils
 
             if (!artistMatch || !titleMatch || !remixMatch)
             {
-                static string[] GetKeywords(string v)
+                static List<string> GetKeywords(string v)
                 {
-                    return v.SplitAll([' ', ',', '.', ':', '-', '~', '&', '|', '(', ')', '[', ']', '/'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    return [.. v
+                        .SplitAll([' ', ',', '.', ':', '-', '~', '&', '|', '(', ')', '[', ']', '/', '·', '+', '"', '!'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Select(v => v.Length > 1 && v.StartsWith('\'') && v.EndsWith('\'') ? v[1..^1] : v)
+                    ];
                 }
 
-                List<string> trackKeywords = [.. GetKeywords(Confusables.Replace(item.Title ?? string.Empty, Confusables.Equivalents))];
-                List<string> queryKeywords = [.. GetKeywords($"{string.Join(' ', searchingMeta.Performers)} {searchingMeta.Title} {searchingMeta.RemixedBy}")];
+                List<string> trackKeywords = GetKeywords(Confusables.Replace(item.Title ?? string.Empty, equivalentsAccentsMap).ToLowerInvariant());
+                List<string> queryKeywords = GetKeywords(Confusables.Replace($"{string.Join(' ', searchingMeta.Performers)} {searchingMeta.Title} {searchingMeta.RemixedBy}", equivalentsAccentsMap).ToLowerInvariant());
+                ImmutableArray<string> commonDummies = [
+                    "ft", "feat", "prod", "remix", "free", "x", "official", "audio", "video", "download", "feat_", "prod_", "by", "music", "w", "mp3", "original", "_", "'", "hq", "album", "sound", "release", "song", "visualiser", "hd", "released", "unreleased", "background", "copyright", "animation"
+                ];
+                ImmutableArray<string> genreDummies = [
+                    "hardtechno", "industrial", "dubstep", "nightcore", "phonk", "techno", "metal", "trap", "hard", "cyberpunk", "dub", "rock", "ost", "soundtrack"
+                ];
+                int trackDummies = 0;
+                int queryDummies = 0;
 
-                foreach (string dummy in new string[]
+                foreach (string dummy in (IEnumerable<string>)[.. commonDummies, .. genreDummies])
                 {
-                    "ft", "feat", "prod", "remix", "free", "x", "official", "audio", "video", "download", "feat_", "prod_"
-                })
+                    trackDummies += trackKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
+                }
+
+                foreach (string dummy in (IEnumerable<string>)[.. commonDummies, .. genreDummies])
                 {
-                    trackKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
-                    queryKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
+                    queryDummies += queryKeywords.RemoveAll(v => metaStringEqualityComparer.Equals(v, dummy));
                 }
 
                 for (int i = 0; i < queryKeywords.Count; i++)
@@ -321,10 +335,7 @@ static class SoundCloudUtils
                     if (removed > 0) queryKeywords.RemoveAt(i--);
                 }
 
-                if (queryKeywords.Count > 0 || trackKeywords.Count > 0)
-                {
-                }
-                else
+                if (queryKeywords.Count == 0 && trackKeywords.Count == 0)
                 {
                     artistMatch = true;
                     titleMatch = true;

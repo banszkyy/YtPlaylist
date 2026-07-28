@@ -69,6 +69,7 @@ static partial class Confusables
         { "‐–—ー", "-" },
         { "“”„", "\"" },
         { "…", "..." },
+        { "｜", "|" }
     });
 
     public static readonly ImmutableDictionary<int, string?> Accents = CompileMap(new Dictionary<string, string?>()

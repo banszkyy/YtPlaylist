@@ -7,6 +7,7 @@ class AudaciousPlaylistItem
     public int Year { get; set; }
     public int TrackNumber { get; set; }
     public string[]? Genre { get; set; }
+    public string? Copyright { get; set; }
     public required long Length { get; set; }
     public required int Bitrate { get; set; }
     public required int Channels { get; set; }
@@ -46,6 +47,7 @@ class AudaciousPlaylistItem
         if (Year != 0) WriteProperty(writer, "year", Year.ToString());
         if (TrackNumber != 0) WriteProperty(writer, "track-number", TrackNumber.ToString());
         if (Genre is not null) WriteProperty(writer, "genre", Uri.EscapeDataString(string.Join(';', Genre)));
+        if (Copyright is not null) WriteProperty(writer, "copyright", Uri.EscapeDataString(Copyright));
         WriteProperty(writer, "length", Length.ToString());
         WriteProperty(writer, "bitrate", Bitrate.ToString());
         WriteProperty(writer, "channels", Channels.ToString());
@@ -77,6 +79,7 @@ class AudaciousPlaylistItem
                 case "year": Year = int.Parse(v); break;
                 case "track-number": TrackNumber = int.Parse(v); break;
                 case "genre": Genre = Uri.EscapeDataString(v).Split(';'); break;
+                case "copyright": Copyright = Uri.EscapeDataString(v); break;
                 case "lyrics": break; // Skip
 
                 default: throw new NotImplementedException($"{k}={v}");

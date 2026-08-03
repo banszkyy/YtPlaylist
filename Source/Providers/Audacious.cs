@@ -25,7 +25,7 @@ static class Audacious
         List<AudaciousPlaylist> audaciousPlaylists = [];
 
         Log.MajorAction($"Reading playlists");
-        using (ProgressBar progress = new() { MaxWidth = 20 })
+        using (ProgressBar progress = new() { MaxWidth = 70 })
         {
             foreach (string item in Directory.GetFiles(playlistsDirecotry, "*.audpl").WithProgress(progress))
             {
@@ -52,8 +52,10 @@ static class Audacious
         }
 
         Log.MajorAction($"Generating playlists");
-        foreach (Playlist? playlist in library.Playlists.OrderBy(v => v.Title).ToArray())
+        foreach (Playlist playlist in library.Playlists.OrderBy(v => v.Title).ToArray())
         {
+            Log.MinorAction($"Generating playlist {playlist.Title}");
+
             AudaciousPlaylist? audaciousPlaylist = audaciousPlaylists.FirstOrDefault(v => v.Title == playlist.Title);
             if (audaciousPlaylist is null)
             {
@@ -73,9 +75,9 @@ static class Audacious
                 }
             }
 
-            using (ProgressBar progress = new() { MaxWidth = 20 })
+            using (ProgressBar progress = new() { MaxWidth = 70 })
             {
-                foreach (MusicFile item in playlist.Musics.WithProgress(progress))
+                foreach (MusicFile item in playlist.Musics.WithProgress(progress, v => v.ToString()))
                 {
                     AudaciousPlaylistItem? audaciousPlaylistItem = audaciousPlaylist.Items.FirstOrDefault(v => v.Uri.LocalPath == item.Path);
 
@@ -188,14 +190,16 @@ static class Audacious
                         };
                     }
 
+                    audaciousPlaylistItem.Artist = item.Meta.GetArtistsText();
+                    audaciousPlaylistItem.Title = item.Meta.GetTitleText();
+                    audaciousPlaylistItem.Album = item.Meta.Album;
+                    audaciousPlaylistItem.Year = (int)(item.Meta.Year ?? default);
+                    audaciousPlaylistItem.Copyright = item.Meta.Copyright;
+
                     TagLib.File tag = item.TagsFile ??= TagLib.File.Create(item.Path, TagLib.ReadStyle.PictureLazy);
 
-                    audaciousPlaylistItem.Artist = string.Join(" & ", tag.Tag.Performers);
-                    audaciousPlaylistItem.Title = tag.Tag.Title;
-                    audaciousPlaylistItem.Album = tag.Tag.Album;
-                    audaciousPlaylistItem.Year = (int)tag.Tag.Year;
                     audaciousPlaylistItem.TrackNumber = (int)tag.Tag.Track;
-                    audaciousPlaylistItem.Genre = tag.Tag.Genres;
+                    audaciousPlaylistItem.Genre = tag.Tag.Genres ?? [];
 
                     audaciousPlaylist.Items.Add(audaciousPlaylistItem);
                 }
@@ -203,12 +207,12 @@ static class Audacious
         }
 
         Log.MajorAction($"Writing playlists");
-        using (ProgressBar progress = new() { MaxWidth = 20 })
+        using (ProgressBar progress = new() { MaxWidth = 70 })
         {
             for (int i = 0; i < audaciousPlaylists.Count; i++)
             {
-                progress.Report(i, audaciousPlaylists.Count);
                 Log.MinorAction($"Writing {1000 + i}.audpl");
+                progress.Report(i, audaciousPlaylists.Count);
                 AudaciousPlaylist audaciousPlaylist = audaciousPlaylists[i];
                 if (!arguments.DryRun) audaciousPlaylist.SaveTo(Path.Combine(playlistsDirecotry, $"{1000 + i}.audpl"));
             }

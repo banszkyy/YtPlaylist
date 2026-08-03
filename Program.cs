@@ -25,6 +25,7 @@ static class Program
         bool regenerateAudicousPlaylists = false;
         bool syncSoundCloudPlaylists = false;
         bool ignoreSoundCloudMatchWarnings = false;
+        string? fixFile = null;
         bool saveIntermediateTags = false;
         List<string> soundcloudIgnore = [];
         List<string> additionalYtDlpArguments = [];
@@ -172,7 +173,22 @@ static class Program
                         return 1;
                     }
 
-                    additionalYtDlpArguments.AddRange(args[++i]);
+                    additionalYtDlpArguments.Add(args[++i]);
+                    break;
+                case "--fixfile":
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a value after the argument {args[i]}");
+                        return 1;
+                    }
+
+                    if (fixFile is not null)
+                    {
+                        Log.Error($"Fixfile already defined");
+                        return 1;
+                    }
+
+                    fixFile = args[++i];
                     break;
                 default:
                     Log.Error($"Unexpected argument {args[i]}");
@@ -238,6 +254,7 @@ static class Program
                 SyncSoundCloudPlaylists = syncSoundCloudPlaylists,
                 SoundCloudIgnore = [.. soundcloudIgnore],
                 IgnoreSoundCloudMatchWarnings = ignoreSoundCloudMatchWarnings,
+                FixFile = fixFile,
                 SaveIntermediateTags = saveIntermediateTags,
                 YtDlpAdditionalArguments = [.. additionalYtDlpArguments],
             },

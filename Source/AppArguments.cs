@@ -22,6 +22,7 @@ sealed class AppArguments
     public required bool RegenerateAudicousPlaylists { get; init; }
     public required bool SyncSoundCloudPlaylists { get; init; }
     public required bool IgnoreSoundCloudMatchWarnings { get; init; }
+    public required string? FixFile { get; init; }
     public required bool SaveIntermediateTags { get; init; }
     public required ImmutableArray<string> SoundCloudIgnore { get; init; }
     public required ImmutableArray<string> YtDlpAdditionalArguments { get; init; }

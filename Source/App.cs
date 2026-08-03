@@ -63,9 +63,9 @@ sealed class App
         {
             Log.MajorAction($"Fetching playlists metadata");
 
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
+            using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
-                foreach (string playlistId in Arguments.PlaylistIds.Distinct().ToArray().WithProgress(progressBar))
+                foreach (string playlistId in Arguments.PlaylistIds.Distinct().ToArray().WithProgress(progressBar, v => v))
                 {
                     if (!Arguments.UseCache || youTubeCache is null || !youTubeCache.LoadPlaylist(playlistId, out YoutubeExplode.Playlists.Playlist? playlist))
                     {
@@ -76,6 +76,7 @@ sealed class App
                         catch (Exception ex)
                         {
                             if (cancellationToken.IsCancellationRequested) return;
+                            Log.Error($"Failed to fetch playlist {playlistId}");
                             Log.Error(ex);
                             continue;
                         }
@@ -88,13 +89,14 @@ sealed class App
 
             Log.MajorAction($"Indexing local files");
 
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
+            using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
-                foreach (YoutubeExplode.Playlists.Playlist playlist in playlists.WithProgress(progressBar))
+                foreach (YoutubeExplode.Playlists.Playlist playlist in playlists.WithProgress(progressBar, v => v.Title))
                 {
-                    Playlist libraryPlaylist = new(playlist.Title, playlist);
-                    library.Playlists.Add(libraryPlaylist);
                     string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
+
+                    Playlist libraryPlaylist = new(playlist.Title, outputPath, playlist);
+                    library.Playlists.Add(libraryPlaylist);
 
                     if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
 
@@ -120,7 +122,7 @@ sealed class App
                             {
                                 if (Arguments.RecreateMetadata)
                                 {
-                                    musicFile.TagsFile.Tag.Album = musicFile.TagsDiff!.Modify("Album", musicFile.TagsFile.Tag.Album, default);
+                                    musicFile.TagsFile.Tag.Album = musicFile.TagsDiff.Modify("Album", musicFile.TagsFile.Tag.Album, default);
                                     musicFile.TagsFile.Tag.AlbumArtists = musicFile.TagsDiff.Modify("AlbumArtists", musicFile.TagsFile.Tag.AlbumArtists, []);
                                     musicFile.TagsFile.Tag.BeatsPerMinute = musicFile.TagsDiff.Modify("BeatsPerMinute", musicFile.TagsFile.Tag.BeatsPerMinute, default);
                                     musicFile.TagsFile.Tag.Composers = musicFile.TagsDiff.Modify("Composers", musicFile.TagsFile.Tag.Composers, []);
@@ -158,6 +160,7 @@ sealed class App
                             }
                             else
                             {
+                                musicFile.Dispose();
                                 unexpectedMusicFiles.Add(filename);
                             }
                         }
@@ -169,9 +172,9 @@ sealed class App
 
             Log.MajorAction($"Fetching & downloading playlist contents");
 
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
+            using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
-                foreach (Playlist playlist in library.Playlists.WithProgress(progressBar))
+                foreach (Playlist playlist in library.Playlists.WithProgress(progressBar, v => v.Title))
                 {
                     if (cancellationToken.IsCancellationRequested) return;
 
@@ -179,6 +182,14 @@ sealed class App
 
                     await DownloadPlaylist(youtube, playlist, youTubeCache, online, outputPath, cancellationToken);
                 }
+            }
+        }
+
+        for (int i = 0; i < unexpectedMusicFiles.Count; i++)
+        {
+            if (library.Musics.Any(v => v.Path == unexpectedMusicFiles[i]))
+            {
+                unexpectedMusicFiles.RemoveAt(i--);
             }
         }
 
@@ -258,7 +269,7 @@ sealed class App
 
                     foreach (List<PlaylistVideo> items in duplicates.Values)
                     {
-                        ImmutableArray<YoutubeExplode.Playlists.Playlist> w = items.Select<PlaylistVideo, YoutubeExplode.Playlists.Playlist?>(w => playlists.FirstOrDefault(v => v.Id.Value == w.PlaylistId.Value)).Where<YoutubeExplode.Playlists.Playlist?>(v => v is not null).ToImmutableArray()!;
+                        ImmutableArray<YoutubeExplode.Playlists.Playlist> w = items.Select<PlaylistVideo, YoutubeExplode.Playlists.Playlist?>(w => playlists.FirstOrDefault(v => v.Id.Value == w.PlaylistId.Value)).Where<YoutubeExplode.Playlists.Playlist?>(v => v is not null).ToImmutableArray();
                         if (w.IsEmpty) continue;
 
                         Log.None();
@@ -391,9 +402,9 @@ sealed class App
             if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
             {
                 Log.MinorAction("Deleting music files");
-                using (ProgressBar progressBar = new() { MaxWidth = 40 })
+                using (ProgressBar progressBar = new() { MaxWidth = 70 })
                 {
-                    foreach (MusicFile file in deleteFiles.WithProgress(progressBar))
+                    foreach (MusicFile file in deleteFiles.WithProgress(progressBar, v => v.ToString()))
                     {
                         MusicFile.Delete(file);
                         Changes.Add(new(file, ChangeType.Delete));
@@ -424,9 +435,9 @@ sealed class App
                 },
             };
 
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
+            using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
-                foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar))
+                foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar, v => v.ToString()))
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     if (!File.Exists(musicFile.Path)) continue;
@@ -440,7 +451,7 @@ sealed class App
                     //    && originalFilename is not null
                     //    && !originalFilename.Equals(name, StringComparison.Ordinal))
                     //{
-                    //    string originalPath = Path.Combine(Path.GetDirectoryName(musicFile.Path)!, originalFilename + ".mp3");
+                    //    string originalPath = Path.Combine(Path.GetDirectoryName(musicFile.Path), originalFilename + ".mp3");
                     //    if (!File.Exists(originalPath))
                     //    {
                     //        if (Arguments.DryRun)
@@ -521,6 +532,196 @@ sealed class App
             }
         }
 
+        if (Arguments.FixFile is not null)
+        {
+            Log.Section($"Fixing");
+
+            List<(string PlaylistName, string MusicName)> musicFix = [];
+
+            if (File.Exists(Arguments.FixFile))
+            {
+                Log.MinorAction($"Parsing fixfile");
+                var text = await File.ReadAllTextAsync(Arguments.FixFile, cancellationToken);
+                var lines = text.Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    var line = lines[i];
+                    int j = line.IndexOf(' ');
+                    if (j == -1)
+                    {
+                        Log.Warning($"Invalid fixfile line at {i + 1}");
+                        continue;
+                    }
+                    var playlistName = line[..j];
+                    var musicName = line[j..].TrimStart();
+                    musicFix.Add((playlistName.ToLowerInvariant(), musicName.ToLowerInvariant()));
+                }
+            }
+            else
+            {
+                Log.Error($"File {Arguments.FixFile} doesn't exists");
+            }
+
+            if (musicFix.Count > 0)
+            {
+                List<(Playlist Playlist, MusicFile File)> _musicFix = new();
+
+                Log.MinorAction($"Perparing musicfix");
+                foreach ((string PlaylistName, string MusicName) item in musicFix)
+                {
+                    Playlist? playlist = null;
+                    int playlistV = int.MaxValue;
+
+                    foreach (Playlist w in library.Playlists)
+                    {
+                        int k = Levenshtein.GetDistance(item.PlaylistName, w.Title.ToLowerInvariant());
+                        if (k == 0)
+                        {
+                            playlist = w;
+                            playlistV = 0;
+                            break;
+                        }
+                        else if (k < playlistV)
+                        {
+                            playlist = w;
+                            playlistV = k;
+                        }
+                    }
+
+                    if (playlist is null || playlistV > 3)
+                    {
+                        Log.Warning($"Playlist \"{item.PlaylistName}\" not found");
+                        continue;
+                    }
+
+                    List<(MusicFile Candidate, int Badness)> candidates = [];
+                    int fileV = int.MaxValue;
+
+                    foreach (MusicFile w in library.Musics)
+                    {
+                        int k = int.MaxValue;
+                        foreach (string a in new string[]
+                        {
+                            w.Meta.Title.ToLowerInvariant(),
+                            $"{string.Join(' ', w.Meta.Performers)} {w.Meta.Title}".ToLowerInvariant(),
+                            Path.GetFileNameWithoutExtension(w.Path).ToLowerInvariant()
+                        })
+                        {
+                            string b = string.Join(' ', new string(w.Meta.Title.ToLowerInvariant().Where(v => char.IsAsciiLetterOrDigit(v) || v == ' ').ToArray()).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+                            k = Math.Min(k, Levenshtein.GetDistance(item.MusicName, a));
+                            k = Math.Min(k, Levenshtein.GetDistance(item.MusicName, b));
+                        }
+
+                        if (k <= fileV)
+                        {
+                            candidates.RemoveAll(v => v.Badness > k + 1);
+                            candidates.Add((w, k));
+                            fileV = k;
+                        }
+                    }
+
+                    if (candidates.Count == 0)
+                    {
+                        Log.Warning($"Music \"{item.MusicName}\" not found");
+                        continue;
+                    }
+
+                    if (candidates.Count > 1)
+                    {
+                        Log.Warning($"Music \"{item.MusicName}\" is too ambigious");
+                        Log.WarningNoprefix($"Candidates:");
+                        candidates.Reverse();
+                        foreach ((MusicFile candidate, int badness) in candidates)
+                        {
+                            Log.WarningNoprefix($"d:{badness} {candidate.Meta}");
+                        }
+                        continue;
+                    }
+
+                    (MusicFile? file, fileV) = candidates[0];
+
+                    if (fileV > 3)
+                    {
+                        Log.Warning($"Music \"{item.MusicName}\" doesn't match with \"{file.Meta}\"");
+                        continue;
+                    }
+
+                    if (file.Playlist == playlist)
+                    {
+                        Log.Warning($"Music \"{file.Meta}\" is already in \"{playlist.Title}\"");
+                        continue;
+                    }
+
+                    _musicFix.Add((playlist, file));
+                }
+
+                if (_musicFix.Count == 0)
+                { }
+                else if (string.IsNullOrWhiteSpace(Arguments.YouTubeCredentialsPath))
+                {
+                    Log.Warning($"Cannot interact with the YouTube API: Credentials path not specified");
+                }
+                else if (!File.Exists(Arguments.YouTubeCredentialsPath))
+                {
+                    Log.Warning($"Cannot interact with the YouTube API: Specified credentials file doesn't exists");
+                }
+                else
+                {
+                    Log.MinorAction("Logging in");
+                    YouTubeService yt = await YoutubeServiceFactory.CreateAsync(Arguments.YouTubeCredentialsPath, Path.Combine(Arguments.HttpCachePath, "token_cache"), cancellationToken);
+
+                    foreach ((Playlist Playlist, MusicFile File) item in _musicFix)
+                    {
+                        try
+                        {
+                            YoutubeExplode.Playlists.Playlist playlist = item.File.Playlist.YouTubePlaylist;
+                            PlaylistVideo video = item.File.PlaylistVideo ?? throw new NullReferenceException();
+
+                            Log.MinorAction($"Moving music {item.File.Meta} from \"{item.File.Playlist.Title}\" to \"{item.Playlist.Title}\"");
+
+                            if (await YouTubeUtils.RemoveFromPlaylist(yt, playlist.Id, video.Id, cancellationToken))
+                            {
+                                PlaylistItemsResource.InsertRequest res = yt.PlaylistItems.Insert(new()
+                                {
+                                    Snippet = new()
+                                    {
+                                        PlaylistId = item.Playlist.YouTubePlaylist.Id,
+                                        ResourceId = new()
+                                        {
+                                            Kind = "youtube#video",
+                                            VideoId = video.Id,
+                                        }
+                                    }
+                                }, new(["snippet"]));
+
+                                item.File.SaveTags();
+                                item.File.Dispose();
+
+                                string destination = Path.Combine(item.Playlist.Path, Path.GetFileName(item.File.Path));
+                                MusicFile.Move(item.File.Path, destination, true);
+
+                                item.File.Playlist.Musics.RemoveAll(v => v.Id == video.Id);
+                                Changes.Add(new(item.File, ChangeType.Delete));
+
+                                MusicFile newFile = new(destination, item.File.Id, item.File.Meta, item.Playlist);
+                                item.Playlist.Musics.Add(newFile);
+                                Changes.Add(new(newFile, ChangeType.Create));
+                            }
+                            else
+                            {
+                                Log.Error($"Video {video.Author.ChannelTitle} - {video.Title} ({video.Id}) not found in playlist {playlist.Title} ({playlist.Id}).");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex);
+                        }
+                    }
+                }
+            }
+        }
+
         if (Arguments.Lyrics)
         {
             Log.Section($"Fetching lyrics");
@@ -530,9 +731,9 @@ sealed class App
                 Timeout = CacheTime,
             });
 
-            using (ProgressBar progressBar = new() { MaxWidth = 40 })
+            using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
-                foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar))
+                foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar, v => v.ToString()))
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     if (!File.Exists(musicFile.Path)) continue;
@@ -550,7 +751,7 @@ sealed class App
 
                     try
                     {
-                        LrcLib.LyricsResponse? lyrics = await lrcLib.FetchLyrics(musicFile.TagsFile.Tag.FirstPerformer, musicFile.TagsFile.Tag.Title, null, null, cancellationToken);
+                        LrcLib.LyricsResponse? lyrics = await lrcLib.FetchLyrics(musicFile.Meta.Performers[0], musicFile.Meta.Title, null, null, cancellationToken);
                         if (lyrics is null) continue;
                         if (lyrics.SyncedLyrics is null && lyrics.PlainLyrics is null) continue;
 
@@ -616,6 +817,7 @@ sealed class App
                     catch (Exception ex)
                     {
                         if (cancellationToken.IsCancellationRequested) return;
+                        Log.Error($"Failed to download lyrics for {musicFile.Meta}");
                         Log.Error(ex);
                         continue;
                     }
@@ -769,7 +971,7 @@ sealed class App
             List<ImmutableArray<MusicFile>> duplicates = [];
             ImmutableArray<MusicFile> all = [.. library.Musics];
 
-            using (ProgressBar progress = new() { MaxWidth = 40 })
+            using (ProgressBar progress = new() { MaxWidth = 70 })
             {
                 for (int i = 0; i < all.Length; i++)
                 {
@@ -867,7 +1069,7 @@ sealed class App
                             Console.Write(i + 1);
                             Console.ResetColor();
                             Console.Write(" - ");
-                            Console.Write($"[{item.Playlist.Title}] {item.PlaylistVideo!.Author} - {item.PlaylistVideo.Title} (check https://www.youtube.com/watch?v={item.PlaylistVideo.Id} )");
+                            Console.Write($"[{item.Playlist.Title}] {item.PlaylistVideo.Author} - {item.PlaylistVideo.Title} (check https://www.youtube.com/watch?v={item.PlaylistVideo.Id} )");
                             Console.WriteLine();
                         }
 
@@ -899,31 +1101,31 @@ sealed class App
                             try
                             {
                                 PlaylistItemsResource.ListRequest listRequest = yt.PlaylistItems.List("id,snippet");
-                                listRequest.PlaylistId = v.PlaylistVideo!.PlaylistId;
-                                listRequest.VideoId = v.PlaylistVideo!.Id;
+                                listRequest.PlaylistId = v.PlaylistVideo.PlaylistId;
+                                listRequest.VideoId = v.PlaylistVideo.Id;
                                 listRequest.MaxResults = 1;
 
-                                Log.Debug($"Searching for item id in {v.PlaylistVideo!.Title} ({v.PlaylistVideo!.Id})");
+                                Log.Debug($"Searching for item id in {v.PlaylistVideo.Title} ({v.PlaylistVideo.Id})");
                                 Google.Apis.YouTube.v3.Data.PlaylistItemListResponse listResponse = await listRequest.ExecuteAsync(cancellationToken);
                                 Google.Apis.YouTube.v3.Data.PlaylistItem? item = listResponse.Items?.FirstOrDefault();
 
                                 if (item == null)
                                 {
-                                    Log.Error($"Video {v.PlaylistVideo!.Author.ChannelTitle} - {v.PlaylistVideo!.Title} ({v.PlaylistVideo!.Id}) not found in playlist {v.PlaylistVideo!.Title} ({v.PlaylistVideo!.Id}).");
+                                    Log.Error($"Video {v.PlaylistVideo.Author.ChannelTitle} - {v.PlaylistVideo.Title} ({v.PlaylistVideo.Id}) not found in playlist {v.PlaylistVideo.Title} ({v.PlaylistVideo.Id}).");
                                     continue;
                                 }
 
-                                Log.Debug($"Deleting item from {v.PlaylistVideo!.Title} ({v.PlaylistVideo!.Id})");
+                                Log.Debug($"Deleting item from {v.PlaylistVideo.Title} ({v.PlaylistVideo.Id})");
                                 PlaylistItemsResource.DeleteRequest deleteRequest = yt.PlaylistItems.Delete(item.Id);
                                 await deleteRequest.ExecuteAsync(cancellationToken);
 
-                                foreach (MusicFile file in v.Playlist.Musics.Where(v => v.Id == ((PlaylistVideo)v.PlaylistVideo!).Id))
+                                foreach (MusicFile file in v.Playlist.Musics.Where(v => v.Id == v.PlaylistVideo.Id))
                                 {
                                     MusicFile.Delete(file);
                                     Changes.Add(new(file, ChangeType.Delete));
                                 }
-                                v.Playlist.Musics.RemoveAll(v => v.Id == ((PlaylistVideo)v.PlaylistVideo!).Id);
-                                online.Remove(v.PlaylistVideo!);
+                                v.Playlist.Musics.RemoveAll(v => v.Id == v.PlaylistVideo.Id);
+                                online.Remove(v.PlaylistVideo);
                             }
                             catch (Exception ex)
                             {
@@ -942,7 +1144,7 @@ sealed class App
             await Audacious.RegeneratePlaylists(library, Arguments, cancellationToken);
         }
 
-        if (string.IsNullOrEmpty(Arguments.SoundCloudCredentialsPath))
+        if (!Arguments.SyncSoundCloudPlaylists || string.IsNullOrEmpty(Arguments.SoundCloudCredentialsPath))
         {
         }
         else if (!File.Exists(Arguments.SoundCloudCredentialsPath))
@@ -952,7 +1154,7 @@ sealed class App
         }
         else
         {
-            SoundCloudCredentials? credentials = JsonSerializer.Deserialize<SoundCloudCredentials>(File.ReadAllText(Arguments.SoundCloudCredentialsPath))!;
+            SoundCloudCredentials? credentials = JsonSerializer.Deserialize<SoundCloudCredentials>(File.ReadAllText(Arguments.SoundCloudCredentialsPath));
             Log.Section($"Synchronizing SoundCloud playlists");
 
             List<Change<(Playlist Playlist, Track Track)>> changes = [];
@@ -1088,10 +1290,12 @@ sealed class App
             }
             catch (SoundCloudException ex)
             {
+                Log.Error($"Failed to sync SoundCloud playlists");
                 Log.Error(ex.Message);
             }
             catch (Exception ex)
             {
+                Log.Error($"Failed to sync SoundCloud playlists");
                 Log.Error(ex);
             }
 
@@ -1246,39 +1450,39 @@ sealed class App
                 Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping entirely");
                 return;
             }
+
+            if (Arguments.DryRun)
+            {
+                Log.MinorAction($"Should download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+            }
             else
             {
-                if (Arguments.DryRun)
-                {
-                    Log.MinorAction($"Should download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
-                }
-                else
-                {
-                    Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+                Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
 
-                    Exception? downloadException = await RunRetries(
+                try
+                {
+                    await RunRetries(
                         (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}", Arguments.YtDlpAdditionalArguments), cancellationToken),
                         GenericHttpRetryFilter,
                         MaxRetries,
                         cancellationToken
                     );
-                    switch (downloadException)
-                    {
-                        case HttpRequestException v:
-                            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int)v.StatusCode!} ({v.StatusCode})");
-                            return;
-                        case not null:
-                            Log.Error(downloadException);
-                            return;
-                    }
-
-                    playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
-                    {
-                        PlaylistVideo = video,
-                    });
-
-                    Changes.Add(new(musicFile, ChangeType.Create));
                 }
+                catch (HttpRequestException ex)
+                {
+                    Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int)ex.StatusCode} ({ex.StatusCode})");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex);
+                }
+
+                playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
+                {
+                    PlaylistVideo = video,
+                });
+
+                Changes.Add(new(musicFile, ChangeType.Create));
             }
         }
         else if (musicFile is null)
@@ -1317,28 +1521,25 @@ sealed class App
         return false;
     }
 
-    static async Task<Exception?> RunRetries(Func<CancellationToken, Task> callback, Func<Exception, CancellationToken, Task<bool>> exceptionHandler, int retries, CancellationToken cancellationToken = default)
+    static async Task RunRetries(Func<CancellationToken, Task> callback, Func<Exception, CancellationToken, Task<bool>> exceptionHandler, int retries, CancellationToken cancellationToken = default)
     {
-        Exception? lastException = null;
-
-        for (int retry = 1; retry <= retries; retry++)
+        int retry = 0;
+        while (true)
         {
-            if (cancellationToken.IsCancellationRequested) return null;
+            if (cancellationToken.IsCancellationRequested) return;
             try
             {
                 await callback.Invoke(cancellationToken);
-                return null;
+                return;
             }
             catch (Exception ex)
             {
-                if (cancellationToken.IsCancellationRequested) return null;
-                if (!await exceptionHandler.Invoke(ex, cancellationToken)) return ex;
-                lastException = ex;
+                if (cancellationToken.IsCancellationRequested) return;
+                if (!await exceptionHandler.Invoke(ex, cancellationToken)) throw;
+                if (retry++ >= retries) throw;
                 continue;
             }
         }
-
-        return cancellationToken.IsCancellationRequested ? null : lastException;
     }
 
     string SanitizeFilename(string filename)

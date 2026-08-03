@@ -55,10 +55,20 @@ public class MusicFile(string path, string id, MusicMeta meta, Playlist playlist
         }
     }
 
-    public override string ToString()
+    public static void Move(string source, string destination, bool @overwrite)
     {
-        return System.IO.Path.GetFileNameWithoutExtension(Path);
+        Log.MinorAction($"Moving file from {source} to {destination}");
+        File.Move(source, destination, overwrite);
+        string lyricsSource = System.IO.Path.ChangeExtension(source, ".lrc");
+        string lyricsDestination = System.IO.Path.ChangeExtension(destination, ".lrc");
+        if (File.Exists(lyricsSource))
+        {
+            Log.MinorAction($"Moving file from {lyricsSource} to {lyricsDestination}");
+            File.Move(lyricsSource, lyricsDestination, overwrite);
+        }
     }
+
+    public override string ToString() => $"[{Playlist.Title}] {System.IO.Path.GetFileNameWithoutExtension(Path)}";
 
     public void Dispose()
     {

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace YtPlaylist;
 
-public class NetscapeCookieFile
+sealed class NetscapeCookieFile
 {
     public readonly record struct Cookie(string Domain, bool IncludeSubdomains, string Path, bool Secure, long Expires, string Name, string Value);
 

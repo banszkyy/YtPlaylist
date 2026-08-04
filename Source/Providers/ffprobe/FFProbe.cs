@@ -2,11 +2,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using Logger;
 
-namespace FFMPEG.Probe;
+namespace YtPlaylist.FFMPEG.Probe;
 
-public static class FFProbe
+static class FFProbe
 {
-    public static async Task<Root?> Probe(string filename, CancellationToken cancellationToken = default)
+    public static async Task<FFProbeResult?> Probe(string filename, CancellationToken cancellationToken = default)
     {
         using Process? process = Process.Start(new ProcessStartInfo()
         {
@@ -26,6 +26,6 @@ public static class FFProbe
         }
 
         string res = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        return JsonSerializer.Deserialize<Root>(res);
+        return JsonSerializer.Deserialize<FFProbeResult>(res);
     }
 }

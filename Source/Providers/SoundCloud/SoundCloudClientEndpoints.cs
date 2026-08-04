@@ -7,7 +7,7 @@ using JsonExtensions.Http;
 
 namespace YtPlaylist.SoundCloud;
 
-public partial class SoundCloudClient
+partial class SoundCloudClient
 {
     public async Task<User?> GetUserFromPermalink(string permalink, CancellationToken cancellationToken = default)
     {

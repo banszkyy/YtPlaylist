@@ -1,5 +1,7 @@
 using Google.Apis.YouTube.v3;
 
+namespace YtPlaylist;
+
 static class YouTubeUtils
 {
     public static async Task<bool> RemoveFromPlaylist(YouTubeService client, string playlistId, string videoId, CancellationToken cancellationToken = default)

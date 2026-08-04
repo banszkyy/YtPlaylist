@@ -1,7 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using Logger;
-using YtPlaylist;
+
+namespace YtPlaylist;
 
 static class YtDlp
 {

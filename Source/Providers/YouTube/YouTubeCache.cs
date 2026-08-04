@@ -6,7 +6,7 @@ using YoutubeExplode.Videos;
 
 namespace YtPlaylist;
 
-public sealed class YouTubeCache(string path)
+sealed class YouTubeCache(string path)
 {
     public void SavePlaylist(YoutubeExplode.Playlists.Playlist playlist)
     {

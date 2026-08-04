@@ -1,3 +1,3 @@
 namespace YtPlaylist.SoundCloud;
 
-public class SoundCloudException(string message) : Exception(message);
+sealed class SoundCloudException(string message) : Exception(message);

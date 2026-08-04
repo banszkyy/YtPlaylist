@@ -42,17 +42,13 @@ If you specify `--youtube-credentials`, you can also remove the duplicated music
 ## Example Usage
 
 ```bash
-ytsync -p PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs -o ./Music
+ytsync -p https://music.youtube.com/playlist?list=PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs -o ./Music
 ```
 
 This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, where `PLAYLIST_NAME` is the name of the specified playlist on YouTube
 
 > [!TIP]
-> You can get the playlist id by navigating to the playlist on YouTube. For example:
->
-> <https://music.youtube.com/playlist?list=PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs>
->
-> And copy the part after the "list=" parameter, in this example its "PLCXNT9D5QsgZZrogN4KV__ImVNQWTmRjs".
+> You can also just pass the playlist id instead of the full url
 
 ## Arguments
 

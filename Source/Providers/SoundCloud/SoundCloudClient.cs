@@ -15,7 +15,7 @@ using JsonExtensions.Reading;
 
 namespace YtPlaylist.SoundCloud;
 
-public partial class SoundCloudClient : IDisposable
+sealed partial class SoundCloudClient : IDisposable
 {
     readonly HttpClient client;
     readonly IRequestCache? cache;

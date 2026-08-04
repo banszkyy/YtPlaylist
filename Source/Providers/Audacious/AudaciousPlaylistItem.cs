@@ -1,4 +1,6 @@
-class AudaciousPlaylistItem
+namespace YtPlaylist.Audacious;
+
+sealed class AudaciousPlaylistItem
 {
     public required Uri Uri { get; set; }
     public required string Title { get; set; }

@@ -5,7 +5,7 @@ using YoutubeExplode.Videos;
 
 namespace YtPlaylist;
 
-public static class YouTube
+static class YouTube
 {
     public static async Task FetchMetadata(MusicFile musicFile, YoutubeClient youtube, YouTubeCache? youtubeCache, CancellationToken cancellationToken = default)
     {

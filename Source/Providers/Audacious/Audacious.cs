@@ -1,8 +1,9 @@
-using FFMPEG.Probe;
 using Logger;
-using YtPlaylist;
+using YtPlaylist.FFMPEG.Probe;
 
-static class Audacious
+namespace YtPlaylist.Audacious;
+
+static class AudaciousUtils
 {
     public static async Task RegeneratePlaylists(Library library, AppArguments arguments, CancellationToken cancellationToken = default)
     {
@@ -83,7 +84,7 @@ static class Audacious
 
                     if (audaciousPlaylistItem is null)
                     {
-                        Root? ffprobeRes = await FFProbe.Probe(item.Path, cancellationToken);
+                        FFProbeResult? ffprobeRes = await FFProbe.Probe(item.Path, cancellationToken);
                         if (ffprobeRes is null) continue;
 
                         FFMPEG.Probe.Stream? stream = ffprobeRes.Streams?.FirstOrDefault(v => v.CodecType == "audio");

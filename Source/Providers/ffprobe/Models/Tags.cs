@@ -4,9 +4,9 @@ namespace YtPlaylist.FFMPEG.Probe;
 
 sealed class Tags
 {
-    [J("encoder")] public string? Encoder { get; set; }
-    [J("title")] public string? Title { get; set; }
-    [J("comment")] public string? Comment { get; set; }
-    [J("Description")] public string? Description { get; set; }
-    [J("artist")] public string? Artist { get; set; }
+    [J("encoder")] public string? Encoder { get; init; }
+    [J("title")] public string? Title { get; init; }
+    [J("comment")] public string? Comment { get; init; }
+    [J("Description")] public string? Description { get; init; }
+    [J("artist")] public string? Artist { get; init; }
 }

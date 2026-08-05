@@ -11,7 +11,7 @@ namespace YtPlaylist;
 
 static class SpotifyUtils
 {
-    public static async Task<SearchResultItems?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
+    public static async Task<MatchedSearchResultItem?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
     {
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
@@ -61,7 +61,7 @@ static class SpotifyUtils
         if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title);
         if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
 
-        ImmutableArray<SearchResultItems> queryRes = await client.SearchTracks(
+        ImmutableArray<MatchedSearchResultItem> queryRes = await client.SearchTracks(
             query.ToString(),
             offset: 0,
             limit: 10,
@@ -73,10 +73,10 @@ static class SpotifyUtils
             return null;
         }
 
-        SearchResultItems? bestMatch = null;
+        MatchedSearchResultItem? bestMatch = null;
         int bestMatchScore = 0;
         ImmutableArray<string> bestMatchIssues = [];
-        foreach (SearchResultItems item in queryRes)
+        foreach (MatchedSearchResultItem item in queryRes)
         {
             if (item.Item.Data.Uri == null)
             {

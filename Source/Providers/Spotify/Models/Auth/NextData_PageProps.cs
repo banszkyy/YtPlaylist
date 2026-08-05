@@ -4,6 +4,6 @@ namespace YtPlaylist.Spotify;
 
 public class NextData_PageProps
 {
-    [J("initialStep")] public NextData_InitialStep? InitialStep { get; set; }
-    [J("method")] public string? Method { get; set; }
+    [J("initialStep")] public NextData_InitialStep? InitialStep { get; init; }
+    [J("method")] public string? Method { get; init; }
 }

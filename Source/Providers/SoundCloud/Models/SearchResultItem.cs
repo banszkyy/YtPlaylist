@@ -60,7 +60,7 @@ public class SearchResultItem
     [JsonPropertyName("city")] public string? City { get; init; }
     [JsonPropertyName("comments_count")] public long? CommentsCount { get; init; }
     [JsonPropertyName("country_code")] public object? CountryCode { get; init; }
-    [JsonPropertyName("creator_subscriptions")] public List<CreatorSubscription>? CreatorSubscriptions { get; init; }
+    [JsonPropertyName("creator_subscriptions")] public IReadOnlyList<CreatorSubscription>? CreatorSubscriptions { get; init; }
     [JsonPropertyName("creator_subscription")] public CreatorSubscription? CreatorSubscription { get; init; }
     [JsonPropertyName("followers_count")] public long? FollowersCount { get; init; }
     [JsonPropertyName("followings_count")] public long? FollowingsCount { get; init; }
@@ -76,56 +76,5 @@ public class SearchResultItem
     [JsonPropertyName("badges")] public Badges? Badges { get; init; }
     [JsonPropertyName("date_of_birth")] public object? DateOfBirth { get; init; }
 
-    public Track ToTrack() => new()
-    {
-        ArtworkUrl = ArtworkUrl,
-        Caption = Caption,
-        Commentable = Commentable,
-        CommentCount = CommentCount,
-        CreatedAt = CreatedAt,
-        Description = Description,
-        Downloadable = Downloadable,
-        DownloadCount = DownloadCount,
-        Duration = Duration,
-        FullDuration = FullDuration,
-        EmbeddableBy = EmbeddableBy,
-        Genre = Genre,
-        HasDownloadsLeft = HasDownloadsLeft,
-        Id = Id,
-        Kind = Kind,
-        LabelName = LabelName,
-        LastModified = LastModified,
-        License = License,
-        LikesCount = LikesCount,
-        Permalink = Permalink,
-        PermalinkUrl = PermalinkUrl,
-        PlaybackCount = PlaybackCount,
-        Public = Public,
-        PublisherMetadata = PublisherMetadata,
-        PurchaseTitle = PurchaseTitle,
-        PurchaseUrl = PurchaseUrl,
-        ReleaseDate = ReleaseDate,
-        RepostsCount = RepostsCount,
-        SecretToken = SecretToken,
-        Sharing = Sharing,
-        State = State,
-        Streamable = Streamable,
-        TagList = TagList,
-        Title = Title,
-        Uri = Uri,
-        Urn = Urn,
-        UserId = UserId,
-        Visuals = Visuals,
-        WaveformUrl = WaveformUrl,
-        DisplayDate = DisplayDate,
-        Media = Media,
-        StationUrn = StationUrn,
-        StationPermalink = StationPermalink,
-        TrackAuthorization = TrackAuthorization,
-        MonetizationModel = MonetizationModel,
-        Policy = Policy,
-        User = User,
-    };
-
-    public override string ToString() => Title ?? $"<{Id}>";
+    public override string ToString() => $"{Title} <{Id}>";
 }

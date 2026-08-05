@@ -44,7 +44,7 @@ partial class SpotifyClient
         return [.. v.Data.Search?.TopResults?.Items.Select(v => v.Item.Data) ?? throw new UnreachableException()];
     }
 
-    public async Task<ImmutableArray<SearchResultItems>> SearchTracks(string query, int offset = 0, int limit = 50, CancellationToken cancellationToken = default)
+    public async Task<ImmutableArray<MatchedSearchResultItem>> SearchTracks(string query, int offset = 0, int limit = 50, CancellationToken cancellationToken = default)
     {
         PathfinderResponse v = await PathfinderRequest<PathfinderResponse>(new PathfinderRequest()
         {

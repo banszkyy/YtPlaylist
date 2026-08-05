@@ -4,6 +4,6 @@ namespace YtPlaylist.Spotify;
 
 public class NextData_RequestedScopes
 {
-    [J("grouped")] public List<NextData_Grouped>? Grouped { get; set; }
-    [J("ungrouped")] public List<string>? Ungrouped { get; set; }
+    [J("grouped")] public IReadOnlyList<NextData_Grouped>? Grouped { get; init; }
+    [J("ungrouped")] public IReadOnlyList<string>? Ungrouped { get; init; }
 }

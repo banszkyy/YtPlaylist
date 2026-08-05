@@ -6,4 +6,6 @@ public class Format
 {
     [JsonPropertyName("protocol")] public string? Protocol { get; init; }
     [JsonPropertyName("mime_type")] public string? MimeType { get; init; }
+
+    public override string ToString() => $"{Protocol}:{MimeType}";
 }

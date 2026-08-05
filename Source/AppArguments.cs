@@ -239,7 +239,7 @@ sealed class AppArguments
                         continue;
                     }
 
-                    v.SoundCloudIgnore.Add(args[++i]);
+                    v.SoundCloudIgnore = v.SoundCloudIgnore.Add(args[++i]);
                     break;
                 case "--spotify-sync-ignore":
                     if (i + 1 == args.Length)
@@ -249,7 +249,7 @@ sealed class AppArguments
                         continue;
                     }
 
-                    v.SpotifyIgnore.Add(args[++i]);
+                    v.SoundCloudIgnore = v.SoundCloudIgnore.Add(args[++i]);
                     break;
                 case "--sync-ignore":
                     if (i + 1 == args.Length)
@@ -261,8 +261,8 @@ sealed class AppArguments
 
                     w = args[++i];
 
-                    v.SoundCloudIgnore.Add(w);
-                    v.SpotifyIgnore.Add(w);
+                    v.SoundCloudIgnore = v.SoundCloudIgnore.Add(w);
+                    v.SpotifyIgnore = v.SpotifyIgnore.Add(w);
                     break;
                 case "--save-intermediate-tags":
                     if (v.SaveIntermediateTags) Log.Warning($"Argument \"{args[i]}\" already passed");
@@ -276,7 +276,7 @@ sealed class AppArguments
                         continue;
                     }
 
-                    v.YtDlpAdditionalArguments.Add(args[++i]);
+                    v.YtDlpAdditionalArguments = v.YtDlpAdditionalArguments.Add(args[++i]);
                     break;
                 case "--fixfile":
                     if (v.FixFile is not null)

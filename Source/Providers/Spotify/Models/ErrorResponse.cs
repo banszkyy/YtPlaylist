@@ -4,5 +4,5 @@ namespace YtPlaylist.Spotify;
 
 public class ErrorResponse
 {
-    [J("error")] public required Error Error { get; set; }
+    [J("error")] public required Error Error { get; init; }
 }

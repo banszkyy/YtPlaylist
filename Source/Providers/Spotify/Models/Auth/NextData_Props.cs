@@ -4,11 +4,11 @@ namespace YtPlaylist.Spotify;
 
 public class NextData_Props
 {
-    [J("pageProps")] public NextData_PageProps? PageProps { get; set; }
-    [J("initialToken")] public string? InitialToken { get; set; }
-    [J("isCsrfEnabled")] public bool? IsCsrfEnabled { get; set; }
-    [J("origin")] public string? Origin { get; set; }
-    [J("trackingEnabled")] public bool? TrackingEnabled { get; set; }
-    [J("translationSet")] public Dictionary<string, string>? TranslationSet { get; set; }
-    [J("__N_SSP")] public bool? NSsp { get; set; }
+    [J("pageProps")] public NextData_PageProps? PageProps { get; init; }
+    [J("initialToken")] public string? InitialToken { get; init; }
+    [J("isCsrfEnabled")] public bool? IsCsrfEnabled { get; init; }
+    [J("origin")] public string? Origin { get; init; }
+    [J("trackingEnabled")] public bool? TrackingEnabled { get; init; }
+    [J("translationSet")] public IReadOnlyDictionary<string, string>? TranslationSet { get; init; }
+    [J("__N_SSP")] public bool? NSsp { get; init; }
 }

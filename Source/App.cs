@@ -714,6 +714,7 @@ sealed class App(AppArguments arguments)
             {
                 Timeout = CacheTime,
             });
+            bool failAllOnFail = true;
 
             using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
@@ -803,7 +804,8 @@ sealed class App(AppArguments arguments)
                         if (cancellationToken.IsCancellationRequested) return;
                         Log.Error($"Failed to download lyrics for {musicFile.Meta}");
                         Log.Error(ex);
-                        continue;
+                        if (failAllOnFail) break;
+                        else continue;
                     }
                 }
             }
@@ -1315,7 +1317,7 @@ sealed class App(AppArguments arguments)
             }
             else
             {
-                List<(Playlist Playlist, Spotify.SearchResultItems Track)> added = [];
+                List<(Playlist Playlist, Spotify.MatchedSearchResultItem Track)> added = [];
                 List<(Playlist Playlist, Spotify.ContentItem Track)> removed = [];
 
                 try
@@ -1342,20 +1344,18 @@ sealed class App(AppArguments arguments)
 
                     foreach (Playlist playlistContent in library.Playlists)
                     {
-                        if (playlistContent.Title != "Techno") continue;
-
-                        if (Arguments.SoundCloudIgnore.Contains(playlistContent.YouTubePlaylist.Id)
-                            || Arguments.SoundCloudIgnore.Contains(playlistContent.Title, StringComparer.InvariantCultureIgnoreCase))
+                        if (Arguments.SpotifyIgnore.Contains(playlistContent.YouTubePlaylist.Id)
+                            || Arguments.SpotifyIgnore.Contains(playlistContent.Title, StringComparer.InvariantCultureIgnoreCase))
                         {
                             continue;
                         }
 
                         Log.MinorAction($"Generating playlist {playlistContent.Title}");
 
-                        List<Spotify.SearchResultItems> tracks = [];
+                        List<Spotify.MatchedSearchResultItem> tracks = [];
                         foreach (MusicFile musicFile in playlistContent.Musics)
                         {
-                            Spotify.SearchResultItems? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
+                            Spotify.MatchedSearchResultItem? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
 
                             if (track is null) continue;
 
@@ -1368,15 +1368,15 @@ sealed class App(AppArguments arguments)
                             tracks.Add(track);
                         }
 
-                        Spotify.ItemElement? existingScPlaylist = profileLibrary.Items.ThrowIfNull().FirstOrDefault(v => v.Item.Data.ThrowIfNull().Name == playlistContent.Title);
+                        Spotify.ItemElement? existingSpotifyPlaylist = profileLibrary.Items.ThrowIfNull().FirstOrDefault(v => v.Item.Data.ThrowIfNull().Name == playlistContent.Title);
                         totalSearches += playlistContent.Musics.Count;
                         totalMatches += tracks.Count;
                         statisticsPerPlaylist.Add((playlistContent, tracks.Count));
-                        string? existingScPlaylistUri = null;
-                        List<Spotify.ContentItem>? sPlaylistContent = null;
-                        if (existingScPlaylist is null)
+                        string? existingSpotifyPlaylistUri = null;
+                        List<Spotify.ContentItem>? spotifyPlaylistContent = null;
+                        if (existingSpotifyPlaylist is null)
                         {
-                            sPlaylistContent = [];
+                            spotifyPlaylistContent = [];
                             if (tracks.Count == 0)
                             {
                                 Log.Warning($"Skipping creating playlist {playlistContent.Title} because it would be empty");
@@ -1389,25 +1389,25 @@ sealed class App(AppArguments arguments)
                                     Spotify.CreatePlaylistResponse r = await client.CreatePlaylist(playlistContent.Title, cancellationToken);
                                     await client.PublishPlaylist(profile.Username, r.Uri, cancellationToken);
                                     await client.SetPlaylistVisibility(profile.Username, r.Uri, false, cancellationToken);
-                                    existingScPlaylistUri = r.Uri;
+                                    existingSpotifyPlaylistUri = r.Uri;
                                 }
                             }
                         }
                         else
                         {
-                            existingScPlaylistUri = existingScPlaylist.Item.Uri.ThrowIfNull();
-                            sPlaylistContent = await client.FetchPlaylistContents(existingScPlaylistUri, cancellationToken).ToListAsync(cancellationToken);
+                            existingSpotifyPlaylistUri = existingSpotifyPlaylist.Item.Uri.ThrowIfNull();
+                            spotifyPlaylistContent = await client.FetchPlaylistContents(existingSpotifyPlaylistUri, cancellationToken).ToListAsync(cancellationToken);
                         }
 
-                        if (existingScPlaylistUri is null) continue;
+                        if (existingSpotifyPlaylistUri is null) continue;
 
-                        foreach (Spotify.SearchResultItems track in tracks)
+                        foreach (Spotify.MatchedSearchResultItem track in tracks)
                         {
-                            if (sPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Item.Data.Uri)) continue;
+                            if (spotifyPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Item.Data.Uri)) continue;
                             added.Add((playlistContent, track));
                         }
 
-                        foreach (Spotify.ContentItem track in sPlaylistContent)
+                        foreach (Spotify.ContentItem track in spotifyPlaylistContent)
                         {
                             if (tracks.Any(v => v.Item.Data.Uri == track.ItemV2.ThrowIfNull().Data.Uri)) continue;
                             removed.Add((playlistContent, track));
@@ -1418,9 +1418,9 @@ sealed class App(AppArguments arguments)
                             Log.MinorAction($"Updating playlist {playlistContent.Title}");
                             if (!Arguments.DryRun)
                             {
-                                if (added.Count > 0) await client.AddToPlaylist(existingScPlaylistUri, added.Select(v => v.Track.Item.Data.Uri), cancellationToken);
-                                if (removed.Count > 0) await client.RemoveFromPlaylist(existingScPlaylistUri, removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
-                                await client.SetPlaylistDescription(existingScPlaylistUri.Split(':')[^1], $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})", cancellationToken);
+                                if (added.Count > 0) await client.AddToPlaylist(existingSpotifyPlaylistUri, added.Select(v => v.Track.Item.Data.Uri), cancellationToken);
+                                if (removed.Count > 0) await client.RemoveFromPlaylist(existingSpotifyPlaylistUri, removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
+                                await client.SetPlaylistDescription(existingSpotifyPlaylistUri.Split(':')[^1], $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})", cancellationToken);
                             }
                         }
                     }
@@ -1436,7 +1436,6 @@ sealed class App(AppArguments arguments)
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
                     Log.None($"{totalMatches * 100 / totalSearches}% ({totalMatches}/{totalSearches})");
-
                 }
                 catch (Exception ex)
                 {
@@ -1446,8 +1445,8 @@ sealed class App(AppArguments arguments)
 
                 List<Change<(Playlist Playlist, string Track)>> changes = [
                     .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track.Item.Data.Name} <{v.Track.Item.Data.Uri}>".TrimStart()), ChangeType.Create)),
-                .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
-            ];
+                    .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
+                ];
 
                 if (changes.Count > 0)
                 {

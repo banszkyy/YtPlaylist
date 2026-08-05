@@ -4,9 +4,9 @@ namespace YtPlaylist.Spotify;
 
 public class NextData_RuntimeConfig
 {
-    [J("staticPrefix")] public string? StaticPrefix { get; set; }
-    [J("basePath")] public string? BasePath { get; set; }
-    [J("development")] public bool? Development { get; set; }
-    [J("eventSenderClientId")] public string? EventSenderClientId { get; set; }
-    [J("urlHosts")] public UrlHosts? UrlHosts { get; set; }
+    [J("staticPrefix")] public string? StaticPrefix { get; init; }
+    [J("basePath")] public string? BasePath { get; init; }
+    [J("development")] public bool? Development { get; init; }
+    [J("eventSenderClientId")] public string? EventSenderClientId { get; init; }
+    [J("urlHosts")] public UrlHosts? UrlHosts { get; init; }
 }

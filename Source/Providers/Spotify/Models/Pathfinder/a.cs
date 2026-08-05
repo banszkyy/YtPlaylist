@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using J = System.Text.Json.Serialization.JsonPropertyNameAttribute;
 
@@ -26,9 +25,9 @@ public class PathfinderVariables
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("limit")] public long? Limit { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("offset")] public long? Offset { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("expandedFolders")] public object[]? ExpandedFolders { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("features")] public string[]? Features { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("filters")] public string[]? Filters { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("expandedFolders")] public IReadOnlyList<object>? ExpandedFolders { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("features")] public IReadOnlyList<string>? Features { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("filters")] public IReadOnlyList<string>? Filters { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("flatten")] public bool? Flatten { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("folderUri")] public string? FolderUri { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("includeFoldersWhenFlattening")] public bool? IncludeFoldersWhenFlattening { get; set; }
@@ -44,13 +43,13 @@ public class PathfinderVariables
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("includeAlbumPreReleases")] public bool? IncludeAlbumPreReleases { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("includeEpisodeContentRatingsV2")] public bool? IncludeEpisodeContentRatingsV2 { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("isPrefix")] public object? IsPrefix { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("sectionFilters")] public List<string>? SectionFilters { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("sectionFilters")] public IReadOnlyList<string>? SectionFilters { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("uri")] public string? Uri { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("enableWatchFeedEntrypoint")] public bool? EnableWatchFeedEntrypoint { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("playlistItemUris")] public List<string>? PlaylistItemUris { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("playlistItemUris")] public IReadOnlyList<string>? PlaylistItemUris { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("playlistUri")] public string? PlaylistUri { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("newPosition")] public NewPosition? NewPosition { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("uids")] public List<string>? Uids { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("uids")] public IReadOnlyList<string>? Uids { get; set; }
 }
 
 public class NewPosition
@@ -74,29 +73,29 @@ public class PathfinderResponseData
 public class SearchV2
 {
     [J("query")] public required string Query { get; set; }
-    [J("albumsV2")] public SearchResponseList<JsonElement>? Albums { get; set; }
-    [J("artists")] public SearchResponseList<JsonElement>? Artists { get; set; }
-    [J("audiobooks")] public SearchResponseList<JsonElement>? Audiobooks { get; set; }
+    [J("albumsV2")] public SearchResponseList<object?>? Albums { get; set; }
+    [J("artists")] public SearchResponseList<object?>? Artists { get; set; }
+    [J("audiobooks")] public SearchResponseList<object?>? Audiobooks { get; set; }
     [J("chipOrder")] public ChipOrder? ChipOrder { get; set; }
-    [J("episodes")] public SearchResponseList<JsonElement>? Episodes { get; set; }
-    [J("genres")] public SearchResponseList<JsonElement>? Genres { get; set; }
-    [J("playlists")] public SearchResponseList<JsonElement>? Playlists { get; set; }
-    [J("podcasts")] public SearchResponseList<JsonElement>? Podcasts { get; set; }
+    [J("episodes")] public SearchResponseList<object?>? Episodes { get; set; }
+    [J("genres")] public SearchResponseList<object?>? Genres { get; set; }
+    [J("playlists")] public SearchResponseList<object?>? Playlists { get; set; }
+    [J("podcasts")] public SearchResponseList<object?>? Podcasts { get; set; }
     [J("topResultsV2")] public TopResults? TopResults { get; set; }
-    [J("tracksV2")] public SearchResponseList<SearchResultItems>? Tracks { get; set; }
-    [J("users")] public SearchResponseList<JsonElement>? Users { get; set; }
+    [J("tracksV2")] public SearchResponseList<MatchedSearchResultItem>? Tracks { get; set; }
+    [J("users")] public SearchResponseList<object?>? Users { get; set; }
 }
 
 public class SearchResponseList<T>
 {
     [J("totalCount")] public required long TotalCount { get; set; }
-    [J("items")] public required List<T> Items { get; set; }
+    [J("items")] public required IReadOnlyList<T> Items { get; set; }
     [J("pagingInfo")] public required PagingInfo PagingInfo { get; set; }
 }
 
 public class ChipOrder
 {
-    [J("items")] public List<ChipOrderItem>? Items { get; set; }
+    [J("items")] public IReadOnlyList<ChipOrderItem>? Items { get; set; }
 }
 
 public class ChipOrderItem
@@ -106,20 +105,19 @@ public class ChipOrderItem
 
 public class TopResults
 {
-    [J("itemsV2")] public required List<SearchResultItems> Items { get; set; }
+    [J("itemsV2")] public required IReadOnlyList<MatchedSearchResultItem> Items { get; set; }
 }
 
-public class SearchResultItems
+public class MatchedSearchResultItem
 {
     [J("item")] public required TypedInstanceWrapper<SearchResultItem> Item { get; set; }
-    [J("matchedFields")] public List<object>? MatchedFields { get; set; }
+    [J("matchedFields")] public IReadOnlyList<object>? MatchedFields { get; set; }
 
     public override string? ToString() => Item.ToString();
 }
 
 public class SearchResultItem
 {
-    [J("__typename")] public required string Typename { get; set; }
     [J("albumOfTrack")] public AlbumOfTrack? AlbumOfTrack { get; set; }
     [J("artists")] public Artists? Artists { get; set; }
     [J("associationsV3")] public Associations? Associations { get; set; }
@@ -131,7 +129,7 @@ public class SearchResultItem
     [J("playability")] public Playability? Playability { get; set; }
     [J("uri")] public required string Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
-    [J("coverArt")] public JsonElement CoverArt { get; set; }
+    [J("coverArt")] public object? CoverArt { get; set; }
     [J("date")] public Date? Date { get; set; }
     [J("isAlbumPreRelease")] public bool? IsAlbumPreRelease { get; set; }
     [J("preReleaseEndDateTime")] public IsoDate? PreReleaseEndDateTime { get; set; }
@@ -141,14 +139,14 @@ public class SearchResultItem
     [J("visuals")] public Visuals? Visuals { get; set; }
     [J("contentRatingsV2")] public ContentRatings? ContentRatings { get; set; }
     [J("description")] public string? Description { get; set; }
-    [J("gatedEntityRelations")] public List<object>? GatedEntityRelations { get; set; }
-    [J("mediaTypes")] public List<string>? MediaTypes { get; set; }
+    [J("gatedEntityRelations")] public IReadOnlyList<object>? GatedEntityRelations { get; set; }
+    [J("mediaTypes")] public IReadOnlyList<string>? MediaTypes { get; set; }
     [J("playedState")] public PlayedState? PlayedState { get; set; }
     [J("podcastV2")] public TypedInstanceWrapper<PodcastData>? PodcastV2 { get; set; }
     [J("releaseDate")] public IsoDate? ReleaseDate { get; set; }
     [J("restrictions")] public Restrictions? Restrictions { get; set; }
     [J("videoPreviewThumbnail")] public VideoPreviewThumbnail? VideoPreviewThumbnail { get; set; }
-    [J("attributes")] public List<Attribute>? Attributes { get; set; }
+    [J("attributes")] public IReadOnlyList<Attribute>? Attributes { get; set; }
     [J("format")] public string? Format { get; set; }
     [J("images")] public Images? Images { get; set; }
     [J("ownerV2")] public TypedInstanceWrapper<OwnerData>? Owner { get; set; }
@@ -158,12 +156,14 @@ public class SearchResultItem
 
 public class AlbumOfTrack
 {
-    [J("coverArt")] public JsonElement CoverArt { get; set; }
+    [J("coverArt")] public object? CoverArt { get; set; }
     [J("id")] public string? Id { get; set; }
     [J("name")] public string? Name { get; set; }
     [J("uri")] public string? Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
     [J("date")] public IsoDate? Date { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class AssociationsV3
@@ -174,8 +174,7 @@ public class AssociationsV3
 
 public class AudioAssociations
 {
-    [J("__typename")] public string? Typename { get; set; }
-    [J("items")] public List<object>? Items { get; set; }
+    [J("items")] public IReadOnlyList<object>? Items { get; set; }
 }
 
 public class VideoAssociations
@@ -186,7 +185,7 @@ public class VideoAssociations
 public class Image
 {
     [J("extractedColors")] public ExtractedColors? ExtractedColors { get; set; }
-    [J("sources")] public required List<ImageSource> Sources { get; set; }
+    [J("sources")] public required IReadOnlyList<ImageSource> Sources { get; set; }
 }
 
 public class ExtractedColors
@@ -198,6 +197,8 @@ public class ColorDark
 {
     [J("hex")] public string? Hex { get; set; }
     [J("isFallback")] public bool? IsFallback { get; set; }
+
+    public override string? ToString() => Hex;
 }
 
 public class ImageSource
@@ -206,6 +207,8 @@ public class ImageSource
     [J("url")] public Uri? Url { get; set; }
     [J("height")] public long? Height { get; set; }
     [J("width")] public long? Width { get; set; }
+
+    public override string? ToString() => Height.HasValue && Width.HasValue ? $"{Width}x{Height} {Url}" : Url?.ToString();
 }
 
 public class SquareCoverImage
@@ -216,65 +219,75 @@ public class SquareCoverImage
 
 public class ExtractedColorSet
 {
-    [J("encoreBaseSetTextColor")] public EncoreBaseSetTextColor? EncoreBaseSetTextColor { get; set; }
+    [J("encoreBaseSetTextColor")] public RgbaColor? EncoreBaseSetTextColor { get; set; }
     [J("highContrast")] public Contrast? HighContrast { get; set; }
     [J("higherContrast")] public Contrast? HigherContrast { get; set; }
     [J("minContrast")] public Contrast? MinContrast { get; set; }
 }
 
-public class EncoreBaseSetTextColor
+public class RgbaColor
 {
     [J("alpha")] public long Alpha { get; set; }
     [J("blue")] public long Blue { get; set; }
     [J("green")] public long Green { get; set; }
     [J("red")] public long Red { get; set; }
+
+    public override string ToString() => $"rgba({Red}, {Green}, {Blue}, {Alpha})";
 }
 
 public class Contrast
 {
-    [J("backgroundBase")] public EncoreBaseSetTextColor? BackgroundBase { get; set; }
-    [J("backgroundTintedBase")] public EncoreBaseSetTextColor? BackgroundTintedBase { get; set; }
-    [J("textBase")] public EncoreBaseSetTextColor? TextBase { get; set; }
-    [J("textBrightAccent")] public EncoreBaseSetTextColor? TextBrightAccent { get; set; }
-    [J("textSubdued")] public EncoreBaseSetTextColor? TextSubdued { get; set; }
+    [J("backgroundBase")] public RgbaColor? BackgroundBase { get; set; }
+    [J("backgroundTintedBase")] public RgbaColor? BackgroundTintedBase { get; set; }
+    [J("textBase")] public RgbaColor? TextBase { get; set; }
+    [J("textBrightAccent")] public RgbaColor? TextBrightAccent { get; set; }
+    [J("textSubdued")] public RgbaColor? TextSubdued { get; set; }
 }
 
 public class Artists
 {
-    [J("items")] public required List<ArtistsItem> Items { get; set; }
+    [J("items")] public required IReadOnlyList<ArtistsItem> Items { get; set; }
 }
 
 public class ArtistsItem
 {
     [J("profile")] public Profile? Profile { get; set; }
     [J("uri")] public required string Uri { get; set; }
+
+    public override string ToString() => $"{Profile} <{Uri}>";
 }
 
 public class Profile
 {
     [J("name")] public string? Name { get; set; }
+
+    public override string? ToString() => Name;
 }
 
 public class Associations
 {
-    [J("audioAssociations")] public JsonElement AudioAssociations { get; set; }
-    [J("videoAssociations")] public JsonElement VideoAssociations { get; set; }
+    [J("audioAssociations")] public object? AudioAssociations { get; set; }
+    [J("videoAssociations")] public object? VideoAssociations { get; set; }
 }
 
 public class Attribute
 {
     [J("key")] public required string Key { get; set; }
     [J("value")] public required string Value { get; set; }
+
+    public override string ToString() => $"{Key} = {Value}";
 }
 
 public class ContentRating
 {
     [J("label")] public required string Label { get; set; }
+
+    public override string ToString() => Label;
 }
 
 public class ContentRatings
 {
-    [J("labels")] public List<string>? Labels { get; set; }
+    [J("labels")] public IReadOnlyList<string>? Labels { get; set; }
 }
 
 public class Date
@@ -289,7 +302,7 @@ public class Duration
 
 public class Images
 {
-    [J("items")] public required List<Image> Items { get; set; }
+    [J("items")] public required IReadOnlyList<Image> Items { get; set; }
 }
 
 public class OnPlatformReputationTrait
@@ -309,17 +322,21 @@ public class OwnerData
     [J("socialHandle")] public object? SocialHandle { get; set; }
     [J("uri")] public required string Uri { get; set; }
     [J("username")] public string? Username { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class AvatarClass
 {
-    [J("sources")] public List<ImageSource>? Sources { get; set; }
+    [J("sources")] public IReadOnlyList<ImageSource>? Sources { get; set; }
 }
 
 public class Playability
 {
-    [J("playable")] public bool? Playable { get; set; }
-    [J("reason")] public string? Reason { get; set; }
+    [J("playable")] public required bool Playable { get; set; }
+    [J("reason")] public required string Reason { get; set; }
+
+    public override string ToString() => Reason;
 }
 
 public class PlayedState
@@ -342,12 +359,16 @@ public class PodcastData
     [J("name")] public string? Name { get; set; }
     [J("publisher")] public Profile? Publisher { get; set; }
     [J("uri")] public required string Uri { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class IsoDate
 {
-    [J("isoString")] public DateTimeOffset? IsoString { get; set; }
+    [J("isoString")] public required DateTimeOffset IsoString { get; set; }
     [J("precision")] public string? Precision { get; set; }
+
+    public override string ToString() => IsoString.ToString();
 }
 
 public class Restrictions
@@ -357,8 +378,7 @@ public class Restrictions
 
 public class VideoPreviewThumbnail
 {
-    [J("__typename")] public required string Typename { get; set; }
-    [J("imagePreview")] public JsonElement ImagePreview { get; set; }
+    [J("imagePreview")] public object? ImagePreview { get; set; }
 }
 
 public class DataSource
@@ -367,6 +387,8 @@ public class DataSource
     [J("maxHeight")] public required long MaxHeight { get; set; }
     [J("maxWidth")] public required long MaxWidth { get; set; }
     [J("url")] public required Uri Url { get; set; }
+
+    public override string ToString() => $"{MaxWidth}x{MaxHeight} {Url}";
 }
 
 public class VisualIdentity
@@ -377,17 +399,17 @@ public class VisualIdentity
 
 public class SixteenByNineCoverImage
 {
-    [J("image")] public JsonElement Image { get; set; }
+    [J("image")] public object? Image { get; set; }
 }
 
 public class Visuals
 {
-    [J("avatarImage")] public JsonElement AvatarImage { get; set; }
+    [J("avatarImage")] public object? AvatarImage { get; set; }
 }
 
 public class ResponseExtensions
 {
-    [J("requestIds")] public required Dictionary<string, JsonElement> RequestIds { get; set; }
+    [J("requestIds")] public required Dictionary<string, object?> RequestIds { get; set; }
 }
 
 public class PagingInfo
@@ -401,7 +423,7 @@ public class Playlist
 {
     [J("content")] public Content? Content { get; set; }
     [J("abuseReportingEnabled")] public bool? AbuseReportingEnabled { get; set; }
-    [J("attributes")] public List<object>? Attributes { get; set; }
+    [J("attributes")] public IReadOnlyList<object>? Attributes { get; set; }
     [J("basePermission")] public string? BasePermission { get; set; }
     [J("currentUserCapabilities")] public CurrentUserCapabilities? CurrentUserCapabilities { get; set; }
     [J("description")] public string? Description { get; set; }
@@ -417,39 +439,36 @@ public class Playlist
     [J("uri")] public string? Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
     [J("watchFeedEntrypoint")] public WatchFeedEntrypoint? WatchFeedEntrypoint { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class Content
 {
-    [J("items")] public List<ContentItem>? Items { get; set; }
+    [J("items")] public IReadOnlyList<ContentItem>? Items { get; set; }
     [J("pagingInfo")] public PagingInfo? PagingInfo { get; set; }
     [J("totalCount")] public long? TotalCount { get; set; }
 }
 
 public class ContentItem
 {
-    [J("addedAt")] public AddedAt? AddedAt { get; set; }
+    [J("addedAt")] public IsoDate? AddedAt { get; set; }
     [J("addedBy")] public TypedInstanceWrapper<AddedByData>? AddedBy { get; set; }
-    [J("attributes")] public List<object>? Attributes { get; set; }
+    [J("attributes")] public IReadOnlyList<object>? Attributes { get; set; }
     [J("itemV2")] public TypedInstanceWrapper<ItemV2Data>? ItemV2 { get; set; }
     [J("itemV3")] public TypedInstanceWrapper<ItemV3Data>? ItemV3 { get; set; }
     [J("uid")] public string? Uid { get; set; }
 }
 
-
-public class AddedAt
-{
-    [J("isoString")] public DateTimeOffset IsoString { get; set; }
-}
-
 public class AddedByData
 {
-    [J("__typename")] public string? Typename { get; set; }
     [J("avatar")] public object? Avatar { get; set; }
     [J("name")] public string? Name { get; set; }
     [J("socialHandle")] public object? SocialHandle { get; set; }
     [J("uri")] public string? Uri { get; set; }
     [J("username")] public string? Username { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class ItemV3Data
@@ -459,6 +478,8 @@ public class ItemV3Data
     [J("playability")] public Playability? Playability { get; set; }
     [J("uri")] public string? Uri { get; set; }
     [J("visualIdentityTrait")] public VisualIdentity? VisualIdentityTrait { get; set; }
+
+    public override string ToString() => $"<{Uri}>";
 }
 
 public class DataIdentityTrait
@@ -475,11 +496,13 @@ public class ContentHierarchyParent
     [J("identityTrait")] public ContentHierarchyParentIdentityTrait? IdentityTrait { get; set; }
     [J("publishingMetadataTrait")] public PublishingMetadataTrait? PublishingMetadataTrait { get; set; }
     [J("uri")] public string? Uri { get; set; }
+
+    public override string ToString() => $"<{Uri}>";
 }
 
 public class Contributors
 {
-    [J("items")] public List<ContributorsItem>? Items { get; set; }
+    [J("items")] public IReadOnlyList<ContributorsItem>? Items { get; set; }
     [J("totalCount")] public long? TotalCount { get; set; }
 }
 
@@ -487,11 +510,15 @@ public class ContributorsItem
 {
     [J("name")] public string? Name { get; set; }
     [J("uri")] public string? Uri { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class ContentHierarchyParentIdentityTrait
 {
     [J("name")] public string? Name { get; set; }
+
+    public override string ToString() => $"{Name}";
 }
 
 public class PublishingMetadataTrait
@@ -501,14 +528,14 @@ public class PublishingMetadataTrait
 
 public class ConsumptionExperienceTrait
 {
-    [J("contentRatings")] public List<object>? ContentRatings { get; set; }
+    [J("contentRatings")] public IReadOnlyList<object>? ContentRatings { get; set; }
     [J("duration")] public Duration? Duration { get; set; }
-    [J("formats")] public List<string>? Formats { get; set; }
+    [J("formats")] public IReadOnlyList<string>? Formats { get; set; }
 }
 
 public class ItemV2Data
 {
-    [J("trackDuration")] public TrackDuration? TrackDuration { get; set; }
+    [J("trackDuration")] public Duration? TrackDuration { get; set; }
     [J("uri")] public string? Uri { get; set; }
     [J("albumOfTrack")] public AlbumOfTrack? AlbumOfTrack { get; set; }
     [J("artists")] public Artists? Artists { get; set; }
@@ -520,11 +547,8 @@ public class ItemV2Data
     [J("playability")] public Playability? Playability { get; set; }
     [J("playcount")] public string? Playcount { get; set; }
     [J("trackNumber")] public long? TrackNumber { get; set; }
-}
 
-public class TrackDuration
-{
-    [J("totalMilliseconds")] public long? TotalMilliseconds { get; set; }
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class CurrentUserCapabilities
@@ -539,7 +563,7 @@ public class CurrentUserCapabilities
 
 public class Members
 {
-    [J("items")] public List<MembersItem>? Items { get; set; }
+    [J("items")] public IReadOnlyList<MembersItem>? Items { get; set; }
     [J("totalCount")] public long? TotalCount { get; set; }
 }
 
@@ -572,7 +596,7 @@ public class ThumbnailImageData
 {
     [J("imageId")] public Uri? ImageId { get; set; }
     [J("imageIdType")] public string? ImageIdType { get; set; }
-    [J("sources")] public List<DataSource>? Sources { get; set; }
+    [J("sources")] public IReadOnlyList<DataSource>? Sources { get; set; }
 }
 
 public class MeResponse
@@ -600,16 +624,18 @@ public class MeProfile
     [J("socialHandle")] public required object? SocialHandle { get; set; }
     [J("uri")] public required string Uri { get; set; }
     [J("username")] public required string Username { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class Library
 {
-    [J("availableFilters")] public required List<SelectedSortOrder> AvailableFilters { get; set; }
-    [J("availableSortOrders")] public required List<SelectedSortOrder> AvailableSortOrders { get; set; }
-    [J("breadcrumbs")] public required List<object> Breadcrumbs { get; set; }
-    [J("items")] public List<ItemElement>? Items { get; set; }
+    [J("availableFilters")] public required IReadOnlyList<SelectedSortOrder> AvailableFilters { get; set; }
+    [J("availableSortOrders")] public required IReadOnlyList<SelectedSortOrder> AvailableSortOrders { get; set; }
+    [J("breadcrumbs")] public required IReadOnlyList<object> Breadcrumbs { get; set; }
+    [J("items")] public IReadOnlyList<ItemElement>? Items { get; set; }
     [J("pagingInfo")] public required PagingInfo PagingInfo { get; set; }
-    [J("selectedFilters")] public required List<SelectedSortOrder> SelectedFilters { get; set; }
+    [J("selectedFilters")] public required IReadOnlyList<SelectedSortOrder> SelectedFilters { get; set; }
     [J("selectedSortOrder")] public SelectedSortOrder? SelectedSortOrder { get; set; }
     [J("totalCount")] public required long TotalCount { get; set; }
 }
@@ -618,27 +644,28 @@ public class SelectedSortOrder
 {
     [J("id")] public required string Id { get; set; }
     [J("name")] public required string Name { get; set; }
+
+    public override string ToString() => $"{Name} <{Id}>";
 }
 
 public class ItemElement
 {
-    [J("addedAt")] public EdAt? AddedAt { get; set; }
+    [J("addedAt")] public IsoDate? AddedAt { get; set; }
     [J("depth")] public long? Depth { get; set; }
     [J("item")] public required ItemItem Item { get; set; }
     [J("pinnable")] public bool? Pinnable { get; set; }
     [J("pinned")] public bool? Pinned { get; set; }
-    [J("playedAt")] public EdAt? PlayedAt { get; set; }
-}
+    [J("playedAt")] public IsoDate? PlayedAt { get; set; }
 
-public class EdAt
-{
-    [J("isoString")] public DateTimeOffset IsoString { get; set; }
+    public override string? ToString() => Item.ToString();
 }
 
 public class ItemItem
 {
     [J("_uri")] public string? Uri { get; set; }
     [J("data")] public ItemData2? Data { get; set; }
+
+    public override string? ToString() => Data?.ToString();
 }
 
 public class ItemData2
@@ -647,18 +674,22 @@ public class ItemData2
     [J("image")] public Image? Image { get; set; }
     [J("name")] public string? Name { get; set; }
     [J("uri")] public required string Uri { get; set; }
-    [J("attributes")] public List<object>? Attributes { get; set; }
+    [J("attributes")] public IReadOnlyList<object>? Attributes { get; set; }
     [J("currentUserCapabilities")] public CurrentUserCapabilities? CurrentUserCapabilities { get; set; }
     [J("description")] public string? Description { get; set; }
     [J("format")] public string? Format { get; set; }
     [J("images")] public Images? Images { get; set; }
     [J("ownerV2")] public OwnerV2? OwnerV2 { get; set; }
     [J("revisionId")] public string? RevisionId { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class OwnerV2
 {
     [J("data")] public OwnerV2Data? Data { get; set; }
+
+    public override string? ToString() => Data?.ToString();
 }
 
 public class OwnerV2Data
@@ -669,111 +700,19 @@ public class OwnerV2Data
     [J("socialHandle")] public object? SocialHandle { get; set; }
     [J("uri")] public required string Uri { get; set; }
     [J("username")] public string? Username { get; set; }
+
+    public override string ToString() => $"{Name} <{Uri}>";
 }
 
 public class Avatar
 {
-    [J("sources")] public List<ImageSource>? Sources { get; set; }
-}
-
-public class DeltaRequest
-{
-    [J("deltas")] public required Delta[] Deltas { get; set; }
-}
-
-public class Delta
-{
-    [J("ops")] public required List<DeltaOperation> Operations { get; set; }
-    [J("info")] public required DeltaInfo Info { get; set; }
-}
-
-public class DeltaInfo
-{
-    [J("source")] public required OperationSource2 Source { get; set; }
-}
-
-public class OperationSource2
-{
-    [J("client")] public required string Client { get; set; }
-}
-
-public class DeltaOperation
-{
-    [J("kind")] public required string Kind { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("rem")] public RemoveOperation? Remove { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("add")] public AddOperation? Add { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("updateItemAttributes")] public UpdateItemAttributesOperation? UpdateItemAttributes { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), J("updateListAttributes")] public UpdateListAttributesOperation? UpdateListAttributes { get; set; }
-}
-
-
-public class AddOperation
-{
-    [J("addFirst")] public required bool AddFirst { get; set; }
-    [J("items")] public required List<AddOperationItem> Items { get; set; }
-}
-
-public class AddOperationItem
-{
-    [J("attributes")] public required Dictionary<string, object> Attributes { get; set; }
-    [J("uri")] public required string Uri { get; set; }
-}
-
-public class RemoveOperation
-{
-    [J("items")] public required List<OperationItem> Items { get; set; }
-    [J("itemsAsKey")] public required bool ItemsAsKey { get; set; }
-}
-
-public class UpdateItemAttributesOperation
-{
-    [J("item")] public required OperationItem Item { get; set; }
-    [J("newAttributes")] public required UpdateAttributesOperationNewAttributes NewAttributes { get; set; }
-}
-
-public class UpdateListAttributesOperation
-{
-    [J("newAttributes")] public required UpdateAttributesOperationNewAttributes NewAttributes { get; set; }
-}
-
-public class UpdateAttributesOperationNewAttributes
-{
-    [J("values")] public required Dictionary<string, object> Values { get; set; }
-}
-
-public class OperationItem
-{
-    [J("uri")] public required string Uri { get; set; }
-}
-
-public class OperationsRequest
-{
-    [J("ops")] public required List<OperationItem2> Operations { get; set; }
-}
-
-public class OperationItem2
-{
-    [J("kind")] public required string Kind { get; set; }
-    [J("updateListAttributes")] public required UpdateListAttributes UpdateListAttributes { get; set; }
-}
-
-public class UpdateListAttributes
-{
-    [J("newAttributes")] public required NewAttributes NewAttributes { get; set; }
-}
-
-public class NewAttributes
-{
-    [J("values")] public required Values2 Values { get; set; }
-}
-
-public class Values2
-{
-    [J("name")] public required string Name { get; set; }
+    [J("sources")] public IReadOnlyList<ImageSource>? Sources { get; set; }
 }
 
 public class CreatePlaylistResponse
 {
     [J("uri")] public required string Uri { get; set; }
     [J("revision")] public required string Revision { get; set; }
+
+    public override string ToString() => $"<{Uri}>";
 }

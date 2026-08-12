@@ -406,7 +406,7 @@ partial class SpotifyClient
         }, false, null, cancellationToken);
     }
 
-    public async Task<Content> FetchPlaylistContents(string playlistUri, int offset = 0, int limit = 50, CancellationToken cancellationToken = default)
+    public async Task<Contents> FetchPlaylistContents(string playlistUri, int offset = 0, int limit = 50, CancellationToken cancellationToken = default)
     {
         PathfinderResponse v = await PathfinderRequest<PathfinderResponse>(new PathfinderRequest()
         {
@@ -430,7 +430,7 @@ partial class SpotifyClient
         return v.Data.Playlist?.Content ?? throw new UnreachableException();
     }
 
-    public async IAsyncEnumerable<ContentItem> FetchPlaylistContents(string playlistUri, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<Content> FetchPlaylistContents(string playlistUri, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         long offset = 0;
         while (true)
@@ -455,11 +455,34 @@ partial class SpotifyClient
                 }
             }, false, null, cancellationToken);
 
-            foreach (ContentItem item in v.Data.Playlist.ThrowIfNull().Content.ThrowIfNull().Items.ThrowIfNull()) yield return item;
+            foreach (Content item in v.Data.Playlist.ThrowIfNull().Content.ThrowIfNull().Items.ThrowIfNull()) yield return item;
 
             if (offset + 50 >= v.Data.Playlist.Content.ThrowIfNull().TotalCount) break;
 
             offset = v.Data.Playlist.Content.PagingInfo.ThrowIfNull().NextOffset.ThrowIfNull();
         }
+    }
+
+    public async Task<Track0> GetTrack(string trackUri, CancellationToken cancellationToken = default)
+    {
+        PathfinderResponse v = await PathfinderRequest<PathfinderResponse>(new PathfinderRequest()
+        {
+            OperationName = "getTrack",
+            Extensions = new RequestExtensions()
+            {
+                PersistedQuery = new PersistedQuery()
+                {
+                    Sha256Hash = "1a2f0cce77c90a4a5b1730beecc4da7e34290d684324c16663bf09a268ebce48",
+                    Version = 1,
+                }
+            },
+            Variables = new PathfinderVariables()
+            {
+                IncludeVideoAssociationItems = false,
+                Uri = trackUri,
+            }
+        }, true, new() { { "u", trackUri } }, cancellationToken);
+
+        return v.Data.TrackUnion.ThrowIfNull();
     }
 }

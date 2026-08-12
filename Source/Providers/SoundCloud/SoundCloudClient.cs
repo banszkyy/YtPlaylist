@@ -119,7 +119,7 @@ sealed partial class SoundCloudClient : IDisposable
             cacheKey = cacheKeyBuilder.ToString();
         }
 
-        if (cached && cache is not null && await cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
+        if (cached && cache is not null && cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
         {
             return new HttpResponseMessage(status)
             {
@@ -143,7 +143,7 @@ sealed partial class SoundCloudClient : IDisposable
         if (cache is not null)
         {
             Stream content = await res.Content.ReadAsStreamAsync(cancellationToken);
-            await cache.Add(cacheKey, content, res.StatusCode);
+            cache.Add(cacheKey, content, res.StatusCode);
 
             HttpResponseMessage res2 = new(res.StatusCode)
             {

@@ -22,7 +22,6 @@ sealed class App(AppArguments arguments)
 
     const int MaxRetries = 1;
     const int MaxConcurrency = 1;
-    static readonly TimeSpan CacheTime = TimeSpan.FromDays(500);
     public const string UserAgent = "github.com/banszkyy";
     readonly List<Change<MusicFile>> Changes = [];
 
@@ -40,16 +39,18 @@ sealed class App(AppArguments arguments)
 
         ImmutableArray<NetscapeCookieFile.Cookie> cookies = [];
 
-        if (!string.IsNullOrWhiteSpace(Arguments.CookiesPath))
         {
-            if (!File.Exists(Arguments.CookiesPath))
+            List<NetscapeCookieFile.Cookie> _cookies = [];
+            foreach (string cookiesPath in Arguments.CookiesPaths)
             {
-                Log.Error($"Specified cookies path doesn't exists {Arguments.CookiesPath}");
+                if (!File.Exists(cookiesPath))
+                {
+                    Log.Error($"Cookies file \"{cookiesPath}\" doesn't exists");
+                    continue;
+                }
+                _cookies.AddRange(NetscapeCookieFile.Parse(File.ReadAllText(cookiesPath)));
             }
-            else
-            {
-                cookies = NetscapeCookieFile.Parse(File.ReadAllText(Arguments.CookiesPath));
-            }
+            cookies = [.. _cookies];
         }
 
         YouTubeCache? youTubeCache = new(Path.Combine(Arguments.HttpCachePath, "YouTube"));
@@ -413,9 +414,9 @@ sealed class App(AppArguments arguments)
                 BaseAddress = new Uri("https://musicbrainz.org/ws/2/"),
             })
             {
-                Cache = new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "MusicBrainz"))
+                Cache = string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "MusicBrainz"))
                 {
-                    Timeout = CacheTime,
+                    Timeout = Arguments.HttpCacheLifetime.Value,
                 },
             };
 
@@ -710,9 +711,9 @@ sealed class App(AppArguments arguments)
         {
             Log.Section($"Fetching lyrics");
 
-            using LrcLib lrcLib = new(new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "LrcLib"))
+            using LrcLib lrcLib = new(string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "LrcLib"))
             {
-                Timeout = CacheTime,
+                Timeout = Arguments.HttpCacheLifetime.Value,
             });
             bool failAllOnFail = true;
 
@@ -1137,9 +1138,9 @@ sealed class App(AppArguments arguments)
 
                 try
                 {
-                    using SoundCloudClient soundCloudClient = new(credentials, cookies, new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "SoundCloud"))
+                    using SoundCloudClient soundCloudClient = new(credentials, cookies, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "SoundCloud"))
                     {
-                        Timeout = CacheTime,
+                        Timeout = Arguments.HttpCacheLifetime.Value,
                     });
 
                     Log.MinorAction($"Initializing SoundCloud client");
@@ -1317,16 +1318,16 @@ sealed class App(AppArguments arguments)
             }
             else
             {
-                List<(Playlist Playlist, Spotify.MatchedSearchResultItem Track)> added = [];
-                List<(Playlist Playlist, Spotify.ContentItem Track)> removed = [];
+                List<(Playlist Playlist, Spotify.SearchResultItem Track)> added = [];
+                List<(Playlist Playlist, Spotify.Content Track)> removed = [];
 
                 try
                 {
                     Spotify.SpotifyCredentials? credentials = JsonSerializer.Deserialize<Spotify.SpotifyCredentials>(File.ReadAllText(Arguments.SpotifyCredentialsPath)) ?? throw new JsonException();
 
-                    using Spotify.SpotifyClient client = new(credentials, Arguments, new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "Spotify"))
+                    using Spotify.SpotifyClient client = new(credentials, cookies, Arguments, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "Spotify"))
                     {
-                        Timeout = CacheTime,
+                        Timeout = Arguments.HttpCacheLifetime.Value,
                     });
 
                     Log.MinorAction($"Initializing Spotify client");
@@ -1352,16 +1353,16 @@ sealed class App(AppArguments arguments)
 
                         Log.MinorAction($"Generating playlist {playlistContent.Title}");
 
-                        List<Spotify.MatchedSearchResultItem> tracks = [];
+                        List<Spotify.SearchResultItem> tracks = [];
                         foreach (MusicFile musicFile in playlistContent.Musics)
                         {
-                            Spotify.MatchedSearchResultItem? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
+                            Spotify.SearchResultItem? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
 
                             if (track is null) continue;
 
-                            if (tracks.Any(v => v.Item.Data.Uri == track.Item.Data.Uri))
+                            if (tracks.Any(v => v.Uri == track.Uri))
                             {
-                                Log.Warning($"Skipping adding track {track.Item.Data.Name} <{track.Item.Data.Uri}> multiple times");
+                                Log.Warning($"Skipping adding track {track.Name} <{track.Uri}> multiple times");
                                 continue;
                             }
 
@@ -1373,7 +1374,7 @@ sealed class App(AppArguments arguments)
                         totalMatches += tracks.Count;
                         statisticsPerPlaylist.Add((playlistContent, tracks.Count));
                         string? existingSpotifyPlaylistUri = null;
-                        List<Spotify.ContentItem>? spotifyPlaylistContent = null;
+                        List<Spotify.Content>? spotifyPlaylistContent = null;
                         if (existingSpotifyPlaylist is null)
                         {
                             spotifyPlaylistContent = [];
@@ -1401,15 +1402,15 @@ sealed class App(AppArguments arguments)
 
                         if (existingSpotifyPlaylistUri is null) continue;
 
-                        foreach (Spotify.MatchedSearchResultItem track in tracks)
+                        foreach (Spotify.SearchResultItem track in tracks)
                         {
-                            if (spotifyPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Item.Data.Uri)) continue;
+                            if (spotifyPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Uri)) continue;
                             added.Add((playlistContent, track));
                         }
 
-                        foreach (Spotify.ContentItem track in spotifyPlaylistContent)
+                        foreach (Spotify.Content track in spotifyPlaylistContent)
                         {
-                            if (tracks.Any(v => v.Item.Data.Uri == track.ItemV2.ThrowIfNull().Data.Uri)) continue;
+                            if (tracks.Any(v => v.Uri == track.ItemV2.ThrowIfNull().Data.Uri)) continue;
                             removed.Add((playlistContent, track));
                         }
 
@@ -1418,7 +1419,7 @@ sealed class App(AppArguments arguments)
                             Log.MinorAction($"Updating playlist {playlistContent.Title}");
                             if (!Arguments.DryRun)
                             {
-                                if (added.Count > 0) await client.AddToPlaylist(existingSpotifyPlaylistUri, added.Select(v => v.Track.Item.Data.Uri), cancellationToken);
+                                if (added.Count > 0) await client.AddToPlaylist(existingSpotifyPlaylistUri, added.Select(v => v.Track.Uri), cancellationToken);
                                 if (removed.Count > 0) await client.RemoveFromPlaylist(existingSpotifyPlaylistUri, removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
                                 await client.SetPlaylistDescription(existingSpotifyPlaylistUri.Split(':')[^1], $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})", cancellationToken);
                             }
@@ -1444,7 +1445,7 @@ sealed class App(AppArguments arguments)
                 }
 
                 List<Change<(Playlist Playlist, string Track)>> changes = [
-                    .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track.Item.Data.Name} <{v.Track.Item.Data.Uri}>".TrimStart()), ChangeType.Create)),
+                    .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track.Name} <{v.Track.Uri}>".TrimStart()), ChangeType.Create)),
                     .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
                 ];
 
@@ -1591,15 +1592,12 @@ sealed class App(AppArguments arguments)
             {
                 PlaylistVideo = video,
             });
-        }
-
-        if (!Arguments.Download) goto meta;
-
-        if (musicFile is not null)
-        {
+            Changes.Add(new(musicFile, ChangeType.Modify));
             Log.Debug($"File \"{Path.GetFileName(filename)}\" already exists, skipping download");
             goto meta;
         }
+
+        if (!Arguments.Download) goto meta;
 
         if (Arguments.DryRun)
         {
@@ -1621,10 +1619,18 @@ sealed class App(AppArguments arguments)
         catch (HttpRequestException ex)
         {
             Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int?)ex.StatusCode} ({ex.StatusCode})");
+            return;
         }
         catch (Exception ex)
         {
             Log.Error(ex);
+            return;
+        }
+
+        if (!File.Exists(filename))
+        {
+            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+            return;
         }
 
         playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)

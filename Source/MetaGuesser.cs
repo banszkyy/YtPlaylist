@@ -60,14 +60,17 @@ public static partial class MetaGuesser
         return;
     }
 
-    static void GuessRemix(ref ReadOnlySpan<char> title, out string? remixedBy, List<Warning>? warnings)
+    static void GuessRemix(ref ReadOnlySpan<char> title, out string? remixedBy, out bool isRemix, List<Warning>? warnings)
     {
         remixedBy = null;
+        isRemix = false;
 
         ReadOnlySpan<string> suffixes = ["remix vip", "remix"];
 
         int i = title.IndexOfAny(suffixes, StringComparison.InvariantCultureIgnoreCase);
         if (i == -1) return;
+
+        isRemix = true;
 
         {
             int l = i;
@@ -144,7 +147,11 @@ public static partial class MetaGuesser
         if (!string.IsNullOrWhiteSpace(tag.Album)) submeta.Album = tag.Album;
         if (!string.IsNullOrWhiteSpace(tag.Copyright)) submeta.Copyright = tag.Copyright;
         if (tag.Year != default) submeta.Year = tag.Year;
-        if (!string.IsNullOrWhiteSpace(tag.RemixedBy)) submeta.RemixedBy = tag.RemixedBy;
+        if (!string.IsNullOrWhiteSpace(tag.RemixedBy))
+        {
+            submeta.RemixedBy = tag.RemixedBy;
+            submeta.IsRemix = true;
+        }
         if (tag.Performers.Length != 0) submeta.Performers = [.. tag.Performers.Where(v => !v.Equals(submeta.RemixedBy, StringComparison.InvariantCultureIgnoreCase) && !v.Equals(submeta.Featuring, StringComparison.InvariantCultureIgnoreCase))];
 
         return submeta;
@@ -256,7 +263,7 @@ public static partial class MetaGuesser
             }
         }
 
-        GuessRemix(ref title, out string? remixedBy, warnings);
+        GuessRemix(ref title, out string? remixedBy, out bool isRemix, warnings);
         GuessFeaturing(ref title, out string? featuring, warnings);
 
         if (string.IsNullOrWhiteSpace(remixedBy)) remixedBy = null;
@@ -269,6 +276,7 @@ public static partial class MetaGuesser
         return new MusicMeta(artists, title.ToString())
         {
             RemixedBy = remixedBy,
+            IsRemix = isRemix,
             Featuring = featuring,
         };
     }
@@ -399,6 +407,7 @@ public static partial class MetaGuesser
             if (remixers.Count == 1)
             {
                 res.RemixedBy = remixers.First();
+                res.IsRemix = true;
             }
             else if (remixers.Count > 1)
             {
@@ -421,7 +430,7 @@ public static partial class MetaGuesser
         text = RemoveDummies(text.ToString());
         text = RemoveExtraWhitespace(text.ToString());
 
-        GuessRemix(ref text, out string? remixedBy, warnings);
+        GuessRemix(ref text, out string? remixedBy, out bool isRemix, warnings);
         GuessFeaturing(ref text, out string? featuring, warnings);
 
         ReadOnlySpan<string> parts = Split(text.ToString(), " - ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -429,7 +438,12 @@ public static partial class MetaGuesser
         if (parts.Length < 2)
         {
             warnings?.Add(new Warning($"It has {parts.Length} part", 0));
-            return new MusicMeta([], text.ToString()) { RemixedBy = remixedBy };
+            return new MusicMeta([], text.ToString())
+            {
+                RemixedBy = remixedBy,
+                IsRemix = isRemix,
+                Featuring = featuring,
+            };
         }
 
         if (parts.Length > 2)
@@ -462,7 +476,12 @@ public static partial class MetaGuesser
 
         if (parts.Length == 1)
         {
-            return new MusicMeta([], parts[0]) { RemixedBy = remixedBy };
+            return new MusicMeta([], parts[0])
+            {
+                RemixedBy = remixedBy,
+                IsRemix = isRemix,
+                Featuring = featuring,
+            };
         }
 
         if (parts.Length > 2)
@@ -476,6 +495,7 @@ public static partial class MetaGuesser
         return new MusicMeta(artists, title)
         {
             RemixedBy = remixedBy,
+            IsRemix = isRemix,
             Featuring = featuring,
         };
     }

@@ -219,7 +219,7 @@ static class SoundCloudUtils
 
                 if (!titleMatch)
                 {
-                    artistMatchIssues.Add($"Title \"{item.PublisherMetadata.ReleaseTitle}\" doesn't match with \"{searchingMeta.Title}\"");
+                    titleMatchIssues.Add($"Title \"{item.PublisherMetadata.ReleaseTitle}\" doesn't match with \"{searchingMeta.Title}\"");
                 }
             }
             else if (item.Title is not null)
@@ -228,13 +228,13 @@ static class SoundCloudUtils
 
                 if (!titleMatch)
                 {
-                    artistMatchIssues.Add($"Title \"{item.Title}\" doesn't match with \"{searchingMeta.Title}\"");
+                    titleMatchIssues.Add($"Title \"{item.Title}\" doesn't match with \"{searchingMeta.Title}\"");
                 }
             }
             else
             {
                 titleMatch = false;
-                artistMatchIssues.Add($"No reliable title found for track");
+                titleMatchIssues.Add($"No reliable title found for track");
             }
 
             MusicMeta meta;
@@ -267,11 +267,11 @@ static class SoundCloudUtils
                     }
                 }
 
-                if (searchingMeta.RemixedBy is null)
+                if (!searchingMeta.IsRemix)
                 {
                     if (!remixMatch)
                     {
-                        remixMatch = meta.RemixedBy is null;
+                        remixMatch = !meta.IsRemix;
                         if (!remixMatch)
                         {
                             titleMatchIssues.Add($"Remixer detected but searching for none");
@@ -280,7 +280,7 @@ static class SoundCloudUtils
                 }
                 else
                 {
-                    remixMatch = meta.RemixedBy is not null && metaStringEqualityComparer.Equals(meta.RemixedBy, searchingMeta.RemixedBy);
+                    remixMatch = meta.IsRemix && meta.RemixedBy is not null && metaStringEqualityComparer.Equals(meta.RemixedBy, searchingMeta.RemixedBy);
                     if (!remixMatch)
                     {
                         if (meta.RemixedBy is null)

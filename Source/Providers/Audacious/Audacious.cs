@@ -35,6 +35,7 @@ static class AudaciousUtils
                 AudaciousPlaylist audaciousPlaylist = new()
                 {
                     Path = item,
+                    Index = int.Parse(Path.GetFileNameWithoutExtension(item)),
                 };
                 audaciousPlaylist.ReadFrom(reader);
                 audaciousPlaylists.Add(audaciousPlaylist);
@@ -52,6 +53,8 @@ static class AudaciousUtils
             }
         }
 
+        List<Change<string>> changes = [];
+
         Log.MajorAction($"Generating playlists");
         foreach (Playlist playlist in library.Playlists.OrderBy(v => v.Title).ToArray())
         {
@@ -60,18 +63,22 @@ static class AudaciousUtils
             AudaciousPlaylist? audaciousPlaylist = audaciousPlaylists.FirstOrDefault(v => v.Title == playlist.Title);
             if (audaciousPlaylist is null)
             {
+                int uniqueIndex = Enumerable.Range(0, 1000).First(v => !audaciousPlaylists.Any(w => int.Parse(Path.GetFileNameWithoutExtension(w.Path)) == v));
                 audaciousPlaylist = new()
                 {
-                    Path = Path.Combine(playlistsDirecotry, $"{Enumerable.Range(0, 1000).First(v => !audaciousPlaylists.Any(w => int.Parse(Path.GetFileNameWithoutExtension(w.Path)) == v))}.audpl"),
+                    Path = Path.Combine(playlistsDirecotry, $"{uniqueIndex}.audpl"),
                     Title = playlist.Title,
+                    Index = uniqueIndex,
                 };
                 audaciousPlaylists.Add(audaciousPlaylist);
             }
 
             for (int i = 0; i < audaciousPlaylist.Items.Count; i++)
             {
-                if (!playlist.Musics.Any(v => v.Path == audaciousPlaylist.Items[i].Uri.LocalPath))
+                if (!playlist.Musics.Any(v => v.Path == audaciousPlaylist.Items[i].Uri.LocalPath)
+                    || audaciousPlaylist.Items.Take(i).Any(v => v.Uri.LocalPath == audaciousPlaylist.Items[i].Uri.LocalPath))
                 {
+                    changes.Add(new($"[{playlist.Title}] {audaciousPlaylist.Items[i].Artist} - {audaciousPlaylist.Items[i].Title}", ChangeType.Delete));
                     audaciousPlaylist.Items.RemoveAt(i--);
                 }
             }
@@ -174,7 +181,7 @@ static class AudaciousUtils
                             continue;
                         }
 
-                        audaciousPlaylistItem = new AudaciousPlaylistItem()
+                        audaciousPlaylist.Items.Add(audaciousPlaylistItem = new AudaciousPlaylistItem()
                         {
                             Uri = new Uri(item.Path, UriKind.Absolute),
                             FileCreated = ((DateTimeOffset)File.GetCreationTime(item.Path)).ToUnixTimeSeconds(),
@@ -188,21 +195,27 @@ static class AudaciousUtils
                             Codec = codec,
                             Length = (long)(duration * 1000),
                             Quality = $"{channelLayout}, {sampleRate} Hz",
-                        };
+                        });
+                        changes.Add(new($"[{playlist.Title}] {audaciousPlaylistItem.Artist} - {audaciousPlaylistItem.Title}", ChangeType.Create));
                     }
 
-                    audaciousPlaylistItem.Artist = item.Meta.GetArtistsText();
-                    audaciousPlaylistItem.Title = item.Meta.GetTitleText();
-                    audaciousPlaylistItem.Album = item.Meta.Album;
-                    audaciousPlaylistItem.Year = (int)(item.Meta.Year ?? default);
-                    audaciousPlaylistItem.Copyright = item.Meta.Copyright;
+                    Diff diff = new();
+
+                    audaciousPlaylistItem.Artist = diff.Modify("Artist", audaciousPlaylistItem.Artist, item.Meta.GetArtistsText());
+                    audaciousPlaylistItem.Title = diff.Modify("Title", audaciousPlaylistItem.Title, item.Meta.GetTitleText());
+                    audaciousPlaylistItem.Album = diff.Modify("Album", audaciousPlaylistItem.Album, item.Meta.Album);
+                    audaciousPlaylistItem.Year = diff.Modify("Year", audaciousPlaylistItem.Year, (int)(item.Meta.Year ?? default));
+                    audaciousPlaylistItem.Copyright = diff.Modify("Copyright", audaciousPlaylistItem.Copyright, item.Meta.Copyright);
 
                     TagLib.File tag = item.TagsFile ??= TagLib.File.Create(item.Path, TagLib.ReadStyle.PictureLazy);
 
-                    audaciousPlaylistItem.TrackNumber = (int)tag.Tag.Track;
-                    audaciousPlaylistItem.Genre = tag.Tag.Genres ?? [];
+                    audaciousPlaylistItem.TrackNumber = diff.Modify("TrackNumber", audaciousPlaylistItem.TrackNumber, (int)tag.Tag.Track);
+                    audaciousPlaylistItem.Genre = diff.Modify("Genre", audaciousPlaylistItem.Genre, tag.Tag.Genres ?? []);
 
-                    audaciousPlaylist.Items.Add(audaciousPlaylistItem);
+                    if (diff.Changes.Count > 0)
+                    {
+                        changes.Add(new($"[{playlist.Title}] {audaciousPlaylistItem.Artist} - {audaciousPlaylistItem.Title}", ChangeType.Modify));
+                    }
                 }
             }
         }
@@ -210,41 +223,15 @@ static class AudaciousUtils
         Log.MajorAction($"Writing playlists");
         using (ProgressBar progress = new() { MaxWidth = 70 })
         {
-            for (int i = 0; i < audaciousPlaylists.Count; i++)
+            foreach (AudaciousPlaylist audaciousPlaylist in audaciousPlaylists.WithProgress(progress, v => $"{v.Index}.audpl"))
             {
-                Log.MinorAction($"Writing {1000 + i}.audpl");
-                progress.Report(i, audaciousPlaylists.Count);
-                AudaciousPlaylist audaciousPlaylist = audaciousPlaylists[i];
-                if (!arguments.DryRun) audaciousPlaylist.SaveTo(Path.Combine(playlistsDirecotry, $"{1000 + i}.audpl"));
+                if (!arguments.DryRun) audaciousPlaylist.SaveTo(Path.Combine(playlistsDirecotry, $"{audaciousPlaylist.Index}.audpl"));
             }
         }
 
-        Log.MajorAction($"Regenerating playlist order");
-        {
-            string orderFilename = Path.Combine(playlistsDirecotry, "order");
-            List<int> order = File.Exists(orderFilename) ? [.. File.ReadAllText(orderFilename).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse)] : [];
+        Log.MajorAction($"Writing playlist order");
+        if (!arguments.DryRun) File.WriteAllText(Path.Combine(playlistsDirecotry, "order"), string.Join(' ', audaciousPlaylists.OrderBy(v => v.Title).Select((v) => v.Index)));
 
-            for (int i = 0; i < order.Count; i++)
-            {
-                int j = order[i] - 1000;
-                if (j < 0 || j >= audaciousPlaylists.Count)
-                {
-                    Log.MinorAction($"Removing {order[i]}");
-                    order.RemoveAt(i--);
-                }
-            }
-
-            for (int i = 0; i < audaciousPlaylists.Count; i++)
-            {
-                if (!order.Contains(i + 1000))
-                {
-                    Log.MinorAction($"Adding {i + 1000}");
-                    order.Add(i + 1000);
-                }
-            }
-
-            Log.MinorAction($"Writing order");
-            if (!arguments.DryRun) File.WriteAllText(orderFilename, string.Join(' ', order));
-        }
+        Changes.Print(changes);
     }
 }

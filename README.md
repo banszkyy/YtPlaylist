@@ -58,10 +58,35 @@ This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, whe
 - `--no-metadata` - Don't fetch any song metadata
 - `--no-lyrics` - Don't fetch song lyrics
 - `--http-cache <path>` - Directory to use as an HTTP cache for the API requests (MusicBrainz, LrcLib, YouTube)
+- `--cache-lifetime <timespan>` - Maximum lifetime of a cache entry.<br/>
+
+<details>
+<summary>Timespan formatting</summary>
+<br/>
+
+**Timespan values:**
+- `0` - expires immediately
+- `i` - never expires
+- `XY` where `X` is a positive integer and `Y` is `s` or `m` or `h` or `d` or `w` or `M` or `y`.<br/>
+`s` - `X` Seconds<br/>
+`m` - `X` Minutes<br/>
+`h` - `X` Hours<br/>
+`d` - `X` Days<br/>
+`w` - `X`*7 days<br/>
+`M` - `X`*30 days<br/>
+`y` - `X`*365 days<br/>
+
+**Timespan examples:**
+- `1d` - 1 day
+- `1h 30m` - 1 hour and 30 minutes
+
+<br/>
+</details>
+
 - `--ignore-meta-warnings` - Ignores all metadata warnings produced when it cannot parse the filename, or it cannot find the MusicBrainz record
 - `--youtube-credentials <path>` - File to save the credentials when interacting with the YouTube API
 - `--soundcloud-credentials <path>` - Credentials to use when interacting with the SoundCloud API
-- `--cookies <path>` - [Netscape cookies file](https://everything.curl.dev/http/cookies/fileformat.html) to extract credentials from ([Get cookies.txt LOCALLY](https://github.com/kairi003/Get-cookies.txt-LOCALLY#from-webstore))
+- `--cookies <path>` - [Netscape cookies file](https://everything.curl.dev/http/cookies/fileformat.html) to extract credentials from ([Get cookies.txt LOCALLY](https://github.com/kairi003/Get-cookies.txt-LOCALLY#from-webstore)) (you can specify more)
 - `--check-redundancy` - Checks for similar meta tags across all music files, like artist names with different capitalization or a few letter differences
 - `--check-duplicates` - Checks for duplicate music based on the meta tags. Music with the same YouTube id will always be checked for
 - `--regenerate-audicous-playlists` - Regenerates your Audicous playlists (stored in `$HOME/.config/audacious/playlists`)
@@ -87,7 +112,7 @@ This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, whe
 
 - [banszkyy/MusicBrainz](https://github.com/banszkyy/MusicBrainz)
 - [banszkyy/Logger](https://github.com/banszkyy/Logger)
-- banszkyy/HttpCache (not yet published)
+- [banszkyy/HttpCache](https://github.com/banszkyy/HttpCache)
 
 ## Would you use this?
 

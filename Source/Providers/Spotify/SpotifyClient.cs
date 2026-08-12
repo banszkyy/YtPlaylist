@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -30,7 +31,7 @@ sealed partial class SpotifyClient : IDisposable
     readonly string deviceFlowUserAgent;
     readonly string userAgent;
 
-    public SpotifyClient(SpotifyCredentials credentials, AppArguments arguments, IRequestCache? cache)
+    public SpotifyClient(SpotifyCredentials credentials, ImmutableArray<NetscapeCookieFile.Cookie> cookies, AppArguments arguments, IRequestCache? cache)
     {
         this.userAgent = credentials.UserAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
         this.arguments = arguments;
@@ -57,19 +58,10 @@ sealed partial class SpotifyClient : IDisposable
         };
         client.DefaultRequestHeaders.Clear();
 
-        if (!string.IsNullOrEmpty(arguments.CookiesPath))
+        foreach (NetscapeCookieFile.Cookie cookie in cookies)
         {
-            if (!File.Exists(arguments.CookiesPath))
-            {
-                Log.Error($"Cookie file \"{arguments.CookiesPath}\" doesn't exists");
-            }
-            else
-            {
-                foreach (NetscapeCookieFile.Cookie cookie in NetscapeCookieFile.Parse(File.ReadAllText(arguments.CookiesPath)))
-                {
-                    cookies.Add(cookie.Name, cookie.Value);
-                }
-            }
+            if (!cookie.Domain.EndsWith("spotify.com")) continue;
+            this.cookies.Add(cookie.Name, cookie.Value);
         }
     }
 
@@ -97,7 +89,7 @@ sealed partial class SpotifyClient : IDisposable
 
         string cacheKey = additionalCacheKey is null ? request.RequestUri.ToString() : $"{request.RequestUri}{(string.IsNullOrEmpty(request.RequestUri.Query) ? "?" : "&") + string.Join('&', additionalCacheKey.OrderBy(v => v.Key).Select(v => $"{HttpUtility.UrlEncode(v.Key)}={HttpUtility.UrlEncode(v.Value)}"))}";
 
-        if (cached && cache is not null && await cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
+        if (cached && cache is not null && cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
         {
             return new HttpResponseMessage(status)
             {
@@ -121,7 +113,7 @@ sealed partial class SpotifyClient : IDisposable
         if (cache is not null)
         {
             Stream content = await res.Content.ReadAsStreamAsync(cancellationToken);
-            await cache.Add(cacheKey, content, res.StatusCode);
+            cache.Add(cacheKey, content, res.StatusCode);
 
             HttpResponseMessage res2 = new(res.StatusCode)
             {
@@ -448,7 +440,7 @@ sealed partial class SpotifyClient : IDisposable
         string spotifyTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-token.json");
         string spotifyClientTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-client-token.json");
 
-        if (token is null || tokenExpiresAt <= DateTime.UtcNow)
+        if (token is null || tokenExpiresAt <= DateTimeOffset.UtcNow)
         {
             token = await GetToken(cancellationToken);
             tokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(token.ExpiresIn);
@@ -461,7 +453,7 @@ sealed partial class SpotifyClient : IDisposable
             }));
         }
 
-        //if (clientToken is null || clientTokenRefreshAt <= DateTime.UtcNow || clientTokenExpiresAt <= DateTime.UtcNow)
+        //if (clientToken is null || clientTokenRefreshAt <= DateTimeOffset.UtcNow || clientTokenExpiresAt <= DateTimeOffset.UtcNow)
         //{
         //    if (!cookies.TryGetValue("sp_t", out string? deviceId))
         //    {

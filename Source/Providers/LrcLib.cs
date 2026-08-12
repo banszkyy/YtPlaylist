@@ -10,11 +10,11 @@ namespace YtPlaylist;
 sealed class LrcLib : IDisposable
 {
     readonly HttpClient Client;
-    readonly FileRequestCache? Cache;
+    readonly IRequestCache? Cache;
     readonly TimeSpan Cooldown;
-    DateTime LastRequest;
+    DateTimeOffset LastRequest;
 
-    public LrcLib(FileRequestCache cache)
+    public LrcLib(IRequestCache cache)
     {
         Client = new HttpClient(new SocketsHttpHandler()
         {
@@ -42,12 +42,12 @@ sealed class LrcLib : IDisposable
 
     async Task Delay(CancellationToken cancellationToken)
     {
-        TimeSpan timeSinceLastRequest = DateTime.UtcNow - LastRequest;
+        TimeSpan timeSinceLastRequest = DateTimeOffset.UtcNow - LastRequest;
         if (timeSinceLastRequest < Cooldown)
         {
             await Task.Delay(Cooldown - timeSinceLastRequest, cancellationToken);
         }
-        LastRequest = DateTime.UtcNow;
+        LastRequest = DateTimeOffset.UtcNow;
     }
 
     public async Task<LyricsResponse?> FetchLyrics(string artistName, string trackName, string? albumName, int? duration, CancellationToken cancellationToken = default)
@@ -65,14 +65,13 @@ sealed class LrcLib : IDisposable
             uri = uriBuilder.ToString();
         }
 
-
         if (Cache is null || !Cache.TryGetCachedItem(uri, out Stream? stream, out HttpStatusCode status))
         {
             await Delay(cancellationToken);
 
             HttpResponseMessage response = await Client.GetAsync(uri, cancellationToken);
             stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            if (Cache is not null) await Cache.Add(uri, stream, response.StatusCode);
+            Cache?.Add(uri, stream, response.StatusCode);
 
             status = response.StatusCode;
         }

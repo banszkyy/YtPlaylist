@@ -7,6 +7,7 @@ public class MusicMeta(ImmutableArray<string> performers, string title)
     public ImmutableArray<string> Performers { get; set; } = performers;
     public string Title { get; set; } = title;
     public string? RemixedBy { get; set; } = null;
+    public bool IsRemix { get; set; } = false;
     public string? Featuring { get; set; } = null;
     public string? Album { get; set; } = null;
     public ImmutableArray<string> AlbumArtists { get; set; } = [];

@@ -4,6 +4,7 @@ namespace YtPlaylist.Audacious;
 sealed class AudaciousPlaylist
 {
     public required string Path { get; init; }
+    public required int Index { get; init; }
     public string Title { get; set; } = string.Empty;
     public List<AudaciousPlaylistItem> Items { get; } = [];
 

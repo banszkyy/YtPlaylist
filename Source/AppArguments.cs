@@ -10,10 +10,11 @@ sealed class AppArguments
     public ImmutableArray<string> PlaylistIds { get; private set; } = [];
     public bool UseCache { get; private set; }
     [NotNull] public string? HttpCachePath { get; private set; }
+    [NotNull] public TimeSpan? HttpCacheLifetime { get; private set; }
     public string? YouTubeCredentialsPath { get; private set; }
     public string? SoundCloudCredentialsPath { get; private set; }
     public string? SpotifyCredentialsPath { get; private set; }
-    public string? CookiesPath { get; private set; }
+    public ImmutableArray<string> CookiesPaths { get; private set; } = [];
     public bool DryRun { get; private set; }
     public bool Download { get; private set; } = true;
     public bool Metadata { get; private set; } = true;
@@ -166,7 +167,7 @@ sealed class AppArguments
                     v.SoundCloudCredentialsPath = args[++i];
                     break;
                 case "--spotify-credentials":
-                    if (v.SoundCloudCredentialsPath is not null)
+                    if (v.SpotifyCredentialsPath is not null)
                     {
                         Log.Error($"Spotify credentials path already defined");
                         success = false;
@@ -183,9 +184,19 @@ sealed class AppArguments
                     v.SpotifyCredentialsPath = args[++i];
                     break;
                 case "--cookies":
-                    if (v.CookiesPath is not null)
+                    if (i + 1 == args.Length)
                     {
-                        Log.Error($"Cookies path already defined");
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.CookiesPaths = v.CookiesPaths.Add(args[++i]);
+                    break;
+                case "--cache-lifetime":
+                    if (v.HttpCacheLifetime.HasValue)
+                    {
+                        Log.Error($"HTTP cache lifetime already defined");
                         success = false;
                         continue;
                     }
@@ -197,7 +208,49 @@ sealed class AppArguments
                         continue;
                     }
 
-                    v.CookiesPath = args[++i];
+                    string y = args[++i];
+
+                    TimeSpan cacheLifetime;
+
+                    if (y == "i")
+                    {
+                        cacheLifetime = TimeSpan.MaxValue;
+                    }
+                    else if (y == "0")
+                    {
+                        cacheLifetime = TimeSpan.Zero;
+                    }
+                    else
+                    {
+                        cacheLifetime = TimeSpan.Zero;
+                        foreach (string item in y.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (item.Length <= 1)
+                            {
+                                Log.Error($"Invalid time segment \"{item}\"");
+                                continue;
+                            }
+
+                            if (!long.TryParse(item[..^1], out long x))
+                            {
+                                Log.Error($"Invalid time segment number \"{item[..^1]}\"");
+                                continue;
+                            }
+
+                            switch (item[^1])
+                            {
+                                case 's': cacheLifetime = cacheLifetime.Add(TimeSpan.FromSeconds(x)); break;
+                                case 'm': cacheLifetime = cacheLifetime.Add(TimeSpan.FromMinutes(x)); break;
+                                case 'h': cacheLifetime = cacheLifetime.Add(TimeSpan.FromHours(x)); break;
+                                case 'd': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x)); break;
+                                case 'w': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 7)); break;
+                                case 'M': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 30)); break;
+                                case 'y': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 365)); break;
+                                default: Log.Error($"Invalid time segment suffix \"{item[^1]}\""); break;
+                            }
+                        }
+                    }
+                    v.HttpCacheLifetime = cacheLifetime;
                     break;
                 case "--check-redundancy":
                     if (v.CheckRedundancy) Log.Warning($"Argument \"{args[i]}\" already passed");
@@ -320,6 +373,7 @@ sealed class AppArguments
         }
 
         v.HttpCachePath ??= "./cache";
+        v.HttpCacheLifetime ??= TimeSpan.MaxValue;
 
         return (v, success);
     }

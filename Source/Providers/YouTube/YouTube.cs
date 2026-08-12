@@ -40,6 +40,7 @@ static class YouTube
         if (string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
         {
             musicFile.Meta.RemixedBy = meta.RemixedBy;
+            musicFile.Meta.IsRemix = meta.IsRemix;
             file.Tag.RemixedBy = diff.Modify("RemixedBy", file.Tag.RemixedBy, musicFile.Meta.RemixedBy);
         }
 

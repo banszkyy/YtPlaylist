@@ -11,7 +11,7 @@ namespace YtPlaylist;
 
 static class SpotifyUtils
 {
-    public static async Task<MatchedSearchResultItem?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
+    public static async Task<SearchResultItem?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
     {
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
@@ -36,24 +36,99 @@ static class SpotifyUtils
         ImmutableDictionary<int, string?> equivalentsAccentsMap = Confusables.CombineMaps(Confusables.Equivalents, Confusables.Accents);
         MetaStringEqualityComparer metaStringEqualityComparer = new(confusablesAccentsMap, StringComparison.InvariantCultureIgnoreCase);
 
+        List<string> userPermalinks = [];
+        List<string> artistPermalinks = [];
+        List<string> playlistPermalinks = [];
+        List<string> trackPermalinks = [];
+        List<string> albumPermalinks = [];
+
         if (musicFile.Video is not null)
         {
-            Regex soundcloudLinkRegex = new(@"https:\/\/(www.)?spotify.com\/");
-            foreach (string permalink in soundcloudLinkRegex.Matches(musicFile.Video.Description).Select(v => v.Groups[1].Value))
+            Regex soundcloudLinkRegex = new(@"https?:\/\/(\w*\.)?spotify\.com([\w-_\/]+)");
+
+            foreach (Video? video in library.Musics.Where(v => v.Video is not null && v.Video.Author.ChannelId.Value == musicFile.Video.Author.ChannelId.Value).Select(v => v.Video))
             {
-                Debugger.Break();
+                if (video is null) continue;
+
+                foreach (Uri link in soundcloudLinkRegex.Matches(video.Description).Select(v => new Uri(v.Value, UriKind.Absolute)))
+                {
+                    ImmutableArray<string> segments = [.. link.Segments.Skip(1).Select(v => v.TrimEnd('/'))];
+
+                    for (int i = 0; i < segments.Length; i += 2)
+                    {
+                        switch (segments[i])
+                        {
+                            case "user":
+                                if (i + 1 < segments.Length) userPermalinks.Add(segments[i + 1]);
+                                else Debugger.Break();
+                                break;
+                            case "artist":
+                                if (i + 1 < segments.Length) artistPermalinks.Add(segments[i + 1]);
+                                else Debugger.Break();
+                                break;
+                            case "track":
+                                if (video.Id.Value == musicFile.Id)
+                                {
+                                    if (i + 1 < segments.Length) trackPermalinks.Add(segments[i + 1]);
+                                    else Debugger.Break();
+                                }
+                                break;
+                            case "playlist":
+                                if (video.Id.Value == musicFile.Id)
+                                {
+                                    if (i + 1 < segments.Length) playlistPermalinks.Add(segments[i + 1]);
+                                    else Debugger.Break();
+                                }
+                                break;
+                            case "album":
+                                if (video.Id.Value == musicFile.Id)
+                                {
+                                    if (i + 1 < segments.Length) albumPermalinks.Add(segments[i + 1]);
+                                    else Debugger.Break();
+                                }
+                                break;
+                            default:
+                                Debugger.Break();
+                                break;
+                        }
+                    }
+                }
             }
         }
 
-        foreach (Video? video in library.Musics.Where(v => v.Video is not null && musicFile.Video is not null && v.Video.Author.ChannelId.Value == musicFile.Video.Author.ChannelId.Value).Select(v => v.Video))
+        if (trackPermalinks.Count == 1)
         {
-            if (video is null) continue;
-
-            Regex soundcloudLinkRegex = new(@"https:\/\/(www.)?spotify.com\/");
-            foreach (string permalink in soundcloudLinkRegex.Matches(video.Description).Select(v => v.Groups[2].Value))
+            Track0 W = await client.GetTrack($"spotify:track:{trackPermalinks[0]}", cancellationToken);
+            return new SearchResultItem()
             {
-                Debugger.Break();
-            }
+                AlbumOfTrack = W.AlbumOfTrack,
+                Artists = new()
+                {
+                    Items = [
+                        .. W.FirstArtist?.Items.Select(v => new Artist0()
+                        {
+                            Uri = v.Uri,
+                            Profile = v.Profile,
+                        }) ?? [],
+                        .. W.OtherArtists?.Items.Select(v => new Artist0()
+                        {
+                            Uri = v.Uri,
+                            Profile = new Profile()
+                            {
+                                Name = v.Name,
+                            },
+                        }) ?? []
+                    ]
+                },
+                Associations = W.Associations,
+                ContentRating = W.ContentRating,
+                Duration = W.Duration,
+                Id = W.Id,
+                Name = W.Name,
+                Playability = W.Playability,
+                Uri = W.Uri,
+                VisualIdentity = W.VisualIdentity,
+            };
         }
 
         StringBuilder query = new();
@@ -137,6 +212,24 @@ static class SpotifyUtils
 
             if (item.Item.Data.Artists is not null)
             {
+                {
+                    int overlap = 0;
+
+                    foreach (Artist0 artist in item.Item.Data.Artists.Items)
+                    {
+                        if (artistPermalinks.Contains(artist.Uri.Split(':')[^1]))
+                        {
+                            overlap++;
+                        }
+                    }
+
+                    if (overlap > 0)
+                    {
+                        artistMatch = true;
+                        goto s;
+                    }
+                }
+
                 ImmutableArray<string> scArtists = [.. item.Item.Data.Artists.Items.Select(v => Confusables.Replace(v.Profile?.Name, Confusables.Equivalents))!];
 
                 artistMatch = MatchArtists(scArtists);
@@ -145,6 +238,8 @@ static class SpotifyUtils
                 {
                     artistMatchIssues.Add($"Artist \"{string.Join(" & ", scArtists)}\" doesn't match with \"{string.Join(" & ", searchingMeta.Performers)}\"");
                 }
+
+            s:;
             }
             else
             {
@@ -159,18 +254,35 @@ static class SpotifyUtils
 
                 if (!titleMatch)
                 {
-                    artistMatchIssues.Add($"Title \"{item.Item.Data.Name}\" doesn't match with \"{searchingMeta.Title}\"");
+                    MusicMeta titleMeta = MetaGuesser.Guess(Confusables.Replace(item.Item.Data.Name, Confusables.Equivalents));
+
+                    if (metaStringEqualityComparer.Equals(titleMeta.Title, searchingMeta.Title))
+                    {
+                        titleMatch = true;
+
+                        remixMatch = titleMeta.IsRemix == searchingMeta.IsRemix && metaStringEqualityComparer.Equals(titleMeta.RemixedBy, searchingMeta.RemixedBy);
+                        if (!remixMatch)
+                        {
+                            if (searchingMeta.RemixedBy is null) titleMatchIssues.Add($"Remixer detected but searching for none");
+                            else if (titleMeta.RemixedBy is null) remixMatchIssues.Add($"Remixer not detected but searching for \"{searchingMeta.RemixedBy}\"");
+                            else remixMatchIssues.Add($"Remixer \"{titleMeta.RemixedBy}\" doesn't match with \"{searchingMeta.RemixedBy}\"");
+                        }
+                    }
+                    else
+                    {
+                        titleMatchIssues.Add($"Title \"{item.Item.Data.Name}\" doesn't match with \"{searchingMeta.Title}\"");
+                    }
                 }
             }
             else
             {
                 Debugger.Break();
                 titleMatch = false;
-                artistMatchIssues.Add($"No reliable title found for track");
+                titleMatchIssues.Add($"No reliable title found for track");
             }
 
-            remixMatch = true;
-            if (musicFile.Meta.RemixedBy != null) Debugger.Break();
+            remixMatch = musicFile.Meta.RemixedBy is null;
+            //if (musicFile.Meta.RemixedBy != null) Debugger.Break();
 
             int score = 10 + (artistMatch ? 1 : 0) + (titleMatch ? 1 : 0) + (remixMatch ? 1 : 0);
 
@@ -205,7 +317,7 @@ static class SpotifyUtils
                 continue;
             }
 
-            return item;
+            return item.Item.Data;
         }
 
         if (!arguments.IgnoreSoundCloudMatchWarnings)

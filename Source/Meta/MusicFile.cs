@@ -18,9 +18,9 @@ public class MusicFile(string path, string id, MusicMeta meta, Playlist playlist
 
     [MemberNotNull(nameof(TagsFile))]
     [MemberNotNull(nameof(TagsDiff))]
-    public void OpenTags()
+    public void OpenTags(TagLib.ReadStyle propertiesStyle = TagLib.ReadStyle.PictureLazy)
     {
-        TagsFile ??= TagLib.File.Create(Path);
+        TagsFile ??= TagLib.File.Create(Path, propertiesStyle);
         TagsDiff ??= new();
     }
 

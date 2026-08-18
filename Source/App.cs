@@ -432,69 +432,10 @@ sealed class App(AppArguments arguments)
                     string name = Path.GetFileNameWithoutExtension(musicFile.Path);
                     string? originalFilename = musicFile.PlaylistVideo is not null ? GetFileNameWithoutExtension(musicFile.PlaylistVideo) : null;
 
-                    //if (musicFile.Video is not null
-                    //    && originalFilename is not null
-                    //    && !originalFilename.Equals(name, StringComparison.Ordinal))
-                    //{
-                    //    string originalPath = Path.Combine(Path.GetDirectoryName(musicFile.Path), originalFilename + ".mp3");
-                    //    if (!File.Exists(originalPath))
-                    //    {
-                    //        if (Arguments.DryRun)
-                    //        {
-                    //            GetFileNameWithoutExtension(musicFile.Video);
-                    //            Log.MinorAction($"Would rename \"{name}\" to \"{originalFilename}\"");
-                    //            name = originalFilename;
-                    //        }
-                    //        else
-                    //        {
-                    //            Log.MinorAction($"Renamed \"{name}\" to \"{originalFilename}\"");
-                    //            File.Move(musicFile.Path, originalPath);
-                    //            name = originalFilename;
-                    //            musicFile.Path = originalPath;
-                    //        }
-                    //    }
-                    //}
-
-                    musicFile.TagsFile ??= TagLib.File.Create(musicFile.Path, TagLib.ReadStyle.PictureLazy);
+                    musicFile.OpenTags();
 
                     if (string.IsNullOrEmpty(musicFile.TagsFile.Tag.MusicBrainzReleaseId))
                     {
-                        List<MetaGuesser.Warning>? warnings = Arguments.IgnoreMetaWarnings ? null : [];
-
-                        if (musicFile.PlaylistVideo is not null)
-                        {
-                            musicFile.Meta = MetaGuesser.Guess(musicFile.PlaylistVideo, warnings);
-                        }
-                        else
-                        {
-                            musicFile.Meta = MetaGuesser.Guess(name, warnings);
-                        }
-
-                        if (warnings is not null && warnings.Count > 0)
-                        {
-                            Log.Warning($"Meta issues for \"{Path.GetFileNameWithoutExtension(musicFile.Path)}\":");
-                            StringBuilder arrowsBuilder = new();
-                            arrowsBuilder.Append(' ', 26);
-                            int i = 0;
-                            foreach (int j in warnings.Select(v => v.Index).Where(v => v != 0).Distinct().Order())
-                            {
-                                int diff = j - i;
-                                arrowsBuilder.Append(' ', diff);
-                                i = j;
-                                arrowsBuilder.Append('^');
-                            }
-                            string arrows = arrowsBuilder.ToString().TrimEnd();
-                            if (arrows.Length > 0) Log.WarningNoprefix(arrows);
-                            foreach (MetaGuesser.Warning warning in warnings)
-                            {
-                                Log.WarningNoprefix(warning.ToString());
-                            }
-                        }
-
-                        //musicFile.TagsFile.Tag.Performers = tagDiff.Modify("Performers", musicFile.TagsFile.Tag.Performers, guessedMeta.RemixedBy is not null ? [.. guessedMeta.Artists, guessedMeta.RemixedBy] : [.. guessedMeta.Artists]);
-                        //musicFile.TagsFile.Tag.Title = tagDiff.Modify("Title", musicFile.TagsFile.Tag.Title, guessedMeta.GetTitleText());
-                        //musicFile.TagsFile.Tag.RemixedBy = tagDiff.Modify("RemixedBy", musicFile.TagsFile.Tag.RemixedBy, guessedMeta.RemixedBy);
-
                         List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
 
                         await MusicBrainz.FetchMetadata(musicFile, musicBrainz, issues, cancellationToken);
@@ -527,7 +468,7 @@ sealed class App(AppArguments arguments)
             {
                 Log.MinorAction($"Parsing fixfile");
                 string text = await File.ReadAllTextAsync(Arguments.FixFile, cancellationToken);
-                string[] lines = text.Split('\n');
+                string[] lines = text.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
                 for (int i = 0; i < lines.Length; i++)
                 {
                     string line = lines[i];
@@ -716,6 +657,7 @@ sealed class App(AppArguments arguments)
                 Timeout = Arguments.HttpCacheLifetime.Value,
             });
             bool failAllOnFail = true;
+            bool fallbackIfBad = true;
 
             using (ProgressBar progressBar = new() { MaxWidth = 70 })
             {
@@ -744,21 +686,25 @@ sealed class App(AppArguments arguments)
                         TimeSpan lyricsDuration = TimeSpan.FromSeconds(lyrics.Duration);
                         TimeSpan? videoDuration = musicFile.PlaylistVideo?.Duration;
 
+                        bool isBad = false;
+
                         if (videoDuration.HasValue)
                         {
                             if (Math.Abs(lyricsDuration.TotalMilliseconds - videoDuration.Value.TotalMilliseconds) > 1000)
                             {
                                 Log.Warning($"Lyrics issue with {musicFile.Meta}:");
                                 Log.WarningNoprefix($"Duration mismatches: Video is {videoDuration.Value} Lyrics is {lyricsDuration}");
+                                isBad = true;
                             }
                         }
 
                         TagLib.Id3v2.SynchedText[]? synchedTexts = null;
                         string? unsyncedText = null;
+                        string? synchedText = lyrics.SyncedLyrics;
 
-                        if (lyrics.SyncedLyrics is not null)
+                        if (synchedText is not null)
                         {
-                            synchedTexts = Lyrics.Parse(lyrics.SyncedLyrics);
+                            synchedTexts = Lyrics.Parse(synchedText);
                             if (synchedTexts is null) continue;
                         }
 
@@ -766,17 +712,26 @@ sealed class App(AppArguments arguments)
                         {
                             unsyncedText = lyrics.PlainLyrics;
                         }
-
-                        if (unsyncedText is null && synchedTexts is not null)
+                        else if (synchedTexts is not null)
                         {
                             unsyncedText = string.Join('\n', synchedTexts.Select(v => v.Text));
                         }
 
+                        string lyricsDescription = "LRCLib";
+                        string lyricsLanguage = "eng";
+
                         TagLib.Id3v2.Tag tag = (TagLib.Id3v2.Tag)musicFile.TagsFile.GetTag(TagLib.TagTypes.Id3v2, true);
+
+                        if (isBad && fallbackIfBad)
+                        {
+                            tag.RemoveFrame(TagLib.Id3v2.SynchronisedLyricsFrame.Get(tag, lyricsDescription, lyricsLanguage, TagLib.Id3v2.SynchedTextType.Lyrics, false));
+                            synchedTexts = null;
+                            synchedText = null;
+                        }
 
                         if (synchedTexts is not null)
                         {
-                            TagLib.Id3v2.SynchronisedLyricsFrame synchronisedLyricsFrame = new("LRCLib", "eng", TagLib.Id3v2.SynchedTextType.Lyrics)
+                            TagLib.Id3v2.SynchronisedLyricsFrame synchronisedLyricsFrame = new(lyricsDescription, lyricsLanguage, TagLib.Id3v2.SynchedTextType.Lyrics)
                             {
                                 Text = synchedTexts,
                                 Format = TagLib.Id3v2.TimestampFormat.AbsoluteMilliseconds,
@@ -786,14 +741,14 @@ sealed class App(AppArguments arguments)
 
                         if (unsyncedText is not null)
                         {
-                            TagLib.Id3v2.UnsynchronisedLyricsFrame unsynchronisedLyricsFrame = new("LRCLib", "eng")
+                            TagLib.Id3v2.UnsynchronisedLyricsFrame unsynchronisedLyricsFrame = new(lyricsDescription, lyricsLanguage)
                             {
                                 Text = unsyncedText,
                             };
                             tag.ReplaceFrame(TagLib.Id3v2.UnsynchronisedLyricsFrame.Get(tag, unsynchronisedLyricsFrame.Description, unsynchronisedLyricsFrame.Language, true), unsynchronisedLyricsFrame);
                         }
 
-                        File.WriteAllText(lyricsPath, lyrics.SyncedLyrics ?? unsyncedText);
+                        File.WriteAllText(lyricsPath, synchedText ?? unsyncedText);
 
                         musicFile.TagsFile.Save();
                         Log.None($"Lyrics added ({lyrics.ArtistName} - {lyrics.TrackName} [{lyrics.AlbumName}] {lyricsDuration})");
@@ -813,15 +768,13 @@ sealed class App(AppArguments arguments)
         }
 
         {
-            Log.Section($"Checking lyrics");
+            Log.Section($"Checking orphan lyrics");
 
-            foreach (YoutubeExplode.Playlists.Playlist playlist in playlists)
+            foreach (Playlist playlist in library.Playlists)
             {
-                string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
+                if (!Directory.Exists(playlist.Path)) continue; ;
 
-                if (!Directory.Exists(outputPath)) continue; ;
-
-                foreach (string filename in Directory.GetFiles(outputPath, "*.lrc"))
+                foreach (string filename in Directory.GetFiles(playlist.Path, "*.lrc"))
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     string musicPath = Path.ChangeExtension(filename, ".mp3");
@@ -1261,6 +1214,8 @@ sealed class App(AppArguments arguments)
                         Console.Write(']');
                         Console.Write(' ');
                         Console.Write(new string(' ', margin - item.Playlist.Title.Length));
+                        ProgressBar.PrintFilled((double)item.TotalMatches / item.Playlist.Musics.Count, 10);
+                        Console.Write(' ');
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
                     Log.None($"{totalMatches * 100 / totalSearches}% ({totalMatches}/{totalSearches})");
@@ -1434,6 +1389,8 @@ sealed class App(AppArguments arguments)
                         Console.Write(']');
                         Console.Write(' ');
                         Console.Write(new string(' ', margin - item.Playlist.Title.Length));
+                        ProgressBar.PrintFilled((double)item.TotalMatches / item.Playlist.Musics.Count, 10);
+                        Console.Write(' ');
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
                     Log.None($"{totalMatches * 100 / totalSearches}% ({totalMatches}/{totalSearches})");
@@ -1616,6 +1573,11 @@ sealed class App(AppArguments arguments)
                 cancellationToken
             );
         }
+        catch (YtDlpExceptionException)
+        {
+            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+            return;
+        }
         catch (HttpRequestException ex)
         {
             Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int?)ex.StatusCode} ({ex.StatusCode})");
@@ -1662,7 +1624,7 @@ sealed class App(AppArguments arguments)
     static async Task<bool> GenericHttpRetryFilter(Exception exception, CancellationToken cancellationToken)
     {
         if (exception is HttpRequestException httpRequestException
-            && httpRequestException.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            && httpRequestException.StatusCode == HttpStatusCode.Forbidden)
         {
             await Task.Delay(1000, cancellationToken);
             return true;
@@ -1691,7 +1653,7 @@ sealed class App(AppArguments arguments)
         }
     }
 
-    string SanitizeFilename(string filename)
+    static string SanitizeFilename(string filename)
     {
         static bool IsOk(char c)
         {

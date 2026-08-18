@@ -58,8 +58,6 @@ static class AudaciousUtils
         Log.MajorAction($"Generating playlists");
         foreach (Playlist playlist in library.Playlists.OrderBy(v => v.Title).ToArray())
         {
-            Log.MinorAction($"Generating playlist {playlist.Title}");
-
             AudaciousPlaylist? audaciousPlaylist = audaciousPlaylists.FirstOrDefault(v => v.Title == playlist.Title);
             if (audaciousPlaylist is null)
             {

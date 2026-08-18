@@ -80,8 +80,8 @@ sealed class AudaciousPlaylistItem
                 case "album": Album = Uri.UnescapeDataString(v); break;
                 case "year": Year = int.Parse(v); break;
                 case "track-number": TrackNumber = int.Parse(v); break;
-                case "genre": Genre = Uri.EscapeDataString(v).Split(';'); break;
-                case "copyright": Copyright = Uri.EscapeDataString(v); break;
+                case "genre": Genre = Uri.UnescapeDataString(v).Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries); break;
+                case "copyright": Copyright = Uri.UnescapeDataString(v); break;
                 case "lyrics": break; // Skip
 
                 default: throw new NotImplementedException($"{k}={v}");

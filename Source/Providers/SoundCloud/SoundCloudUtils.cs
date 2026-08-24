@@ -93,36 +93,61 @@ static class SoundCloudUtils
             verifiedUsers.Add(user);
         }
 
-        StringBuilder query = new();
-        query.Append($"{string.Join(' ', searchingMeta.Performers)} ");
-        if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title);
-        if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
+        List<string> queries = [];
 
-        TrackSearchResponse queryRes = await soundCloudClient.SearchTracks(
-            new SearchRequestTrackFilter()
-            {
-                Query = query.ToString(),
-                Limit = 10,
-                Duration = (musicFile.PlaylistVideo?.Duration.HasValue ?? false) ? musicFile.PlaylistVideo.Duration.Value.TotalMinutes switch
-                {
-                    < 2 => DurationFilter.Short,
-                    < 10 => DurationFilter.Medium,
-                    < 30 => DurationFilter.Long,
-                    _ => DurationFilter.Epic,
-                } : DurationFilter.Any,
-            },
-            cancellationToken: cancellationToken);
-
-        if (queryRes.Collection.Count == 0)
         {
-            if (!arguments.IgnoreSoundCloudMatchWarnings) Log.Warning($"Absolute no track found for query \"{query}\" (check https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())} )");
+            StringBuilder query = new();
+            query.Append($"{string.Join(' ', searchingMeta.Performers)} ");
+            if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title);
+            if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
+            queries.Add(query.ToString());
+        }
+
+        if (searchingMeta.Title.Contains("soundtrack", StringComparison.InvariantCultureIgnoreCase))
+        {
+            StringBuilder query = new();
+            query.Append($"{string.Join(' ', searchingMeta.Performers)} ");
+            if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title.Replace("soundtrack", "OST", StringComparison.InvariantCultureIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
+            queries.Add(query.ToString());
+        }
+
+        List<Track> queryRes2 = [];
+        for (int i = 0; i < queries.Count; i++)
+        {
+            TrackSearchResponse queryRes = await soundCloudClient.SearchTracks(
+                new SearchRequestTrackFilter()
+                {
+                    Query = queries[i],
+                    Limit = 10,
+                    Duration = (musicFile.PlaylistVideo?.Duration.HasValue ?? false) ? musicFile.PlaylistVideo.Duration.Value.TotalMinutes switch
+                    {
+                        < 2 => DurationFilter.Short,
+                        < 10 => DurationFilter.Medium,
+                        < 30 => DurationFilter.Long,
+                        _ => DurationFilter.Epic,
+                    } : DurationFilter.Any,
+                },
+                cancellationToken: cancellationToken);
+            queryRes2.AddRange(queryRes.Collection);
+        }
+
+        if (queryRes2.Count == 0)
+        {
+            if (!arguments.IgnoreSoundCloudMatchWarnings)
+            {
+                foreach (string query in queries)
+                {
+                    Log.Warning($"Absolute no track found for query \"{query}\" (check https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())} )");
+                }
+            }
             return null;
         }
 
         Track? bestMatch = null;
         int bestMatchScore = 0;
         ImmutableArray<string> bestMatchIssues = [];
-        foreach (Track item in queryRes.Collection)
+        foreach (Track item in queryRes2)
         {
             if (item.Kind != "track")
             {
@@ -381,7 +406,10 @@ static class SoundCloudUtils
 
         if (!arguments.IgnoreSoundCloudMatchWarnings)
         {
-            Log.Warning($"No track found for query \"{query}\" (check https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())} )");
+            foreach (string query in queries)
+            {
+                Log.Warning($"No track found for query \"{query}\" (check https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())} )");
+            }
 
             if (bestMatchIssues.Length == 0) throw new UnreachableException();
             if (bestMatch is null) throw new UnreachableException();

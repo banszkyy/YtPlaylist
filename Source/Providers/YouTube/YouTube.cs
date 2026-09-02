@@ -15,8 +15,9 @@ static class YouTube
 
         TagLib.File file = musicFile.TagsFile;
         Diff diff = musicFile.TagsDiff;
+        List<MetaGuesser.Warning> metaWarnings = [];
 
-        MusicMeta meta = MetaGuesser.Guess(musicFile.PlaylistVideo);
+        MusicMeta meta = MetaGuesser.Guess(musicFile.PlaylistVideo, metaWarnings);
 
         string channelName = musicFile.PlaylistVideo.Author.ChannelTitle;
         const string TopicSuffix = " - Topic";
@@ -71,7 +72,7 @@ static class YouTube
 
         if (video2 is not null)
         {
-            meta = MetaGuesser.Guess(video2);
+            meta = MetaGuesser.Guess(video2, metaWarnings);
 
             musicFile.Meta.Copyright = meta.Copyright;
             file.Tag.Copyright = diff.Modify("Copyright", file.Tag.Copyright, meta.Copyright);
@@ -128,7 +129,12 @@ static class YouTube
 
         if (file.Tag.Pictures.Length == 0)
         {
-            await TagUtils.DownloadCoverImage(file, new Uri(musicFile.PlaylistVideo.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute), "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
+            Uri url = new(musicFile.PlaylistVideo.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute);
+            bool ok = await TagUtils.DownloadCoverImage(file, url, "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
+            if (!ok)
+            {
+                metaWarnings?.Add($"Couldn't download cover art (check {url} )");
+            }
         }
     }
 }

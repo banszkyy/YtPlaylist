@@ -87,6 +87,7 @@ static class AudaciousUtils
                 {
                     AudaciousPlaylistItem? audaciousPlaylistItem = audaciousPlaylist.Items.FirstOrDefault(v => v.Uri.LocalPath == item.Path);
 
+                    bool isNew = false;
                     if (audaciousPlaylistItem is null)
                     {
                         FFProbeResult? ffprobeRes = await FFProbe.Probe(item.Path, cancellationToken);
@@ -194,7 +195,7 @@ static class AudaciousUtils
                             Length = (long)(duration * 1000),
                             Quality = $"{channelLayout}, {sampleRate} Hz",
                         });
-                        changes.Add(new($"[{playlist.Title}] {audaciousPlaylistItem.Artist} - {audaciousPlaylistItem.Title}", ChangeType.Create));
+                        isNew = true;
                     }
 
                     Diff diff = new();
@@ -210,7 +211,11 @@ static class AudaciousUtils
                     audaciousPlaylistItem.TrackNumber = diff.Modify("TrackNumber", audaciousPlaylistItem.TrackNumber, (int)tag.Tag.Track);
                     audaciousPlaylistItem.Genre = diff.Modify("Genre", audaciousPlaylistItem.Genre, tag.Tag.Genres ?? []);
 
-                    if (diff.Changes.Count > 0)
+                    if (isNew)
+                    {
+                        changes.Add(new($"[{playlist.Title}] {audaciousPlaylistItem.Artist} - {audaciousPlaylistItem.Title}", ChangeType.Create));
+                    }
+                    else if (diff.Changes.Count > 0)
                     {
                         changes.Add(new($"[{playlist.Title}] {audaciousPlaylistItem.Artist} - {audaciousPlaylistItem.Title}", ChangeType.Modify));
                     }

@@ -59,7 +59,7 @@ static class TagUtils
             return false;
         }
 
-        Log.None("Cover art downloaded");
+        Log.Debug("Cover art downloaded");
         TagLib.Id3v2.AttachmentFrame cover = new()
         {
             Type = type,

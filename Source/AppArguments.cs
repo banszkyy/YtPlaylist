@@ -25,6 +25,8 @@ sealed class AppArguments
     public bool CheckRedundancy { get; private set; }
     public bool CheckDuplicates { get; private set; }
     public bool RegenerateAudicousPlaylists { get; private set; }
+    public bool ExportM3U { get; private set; }
+    public bool ExportPLS { get; private set; }
     public bool SyncSoundCloudPlaylists { get; private set; }
     public bool SyncSpotifyPlaylists { get; private set; }
     public bool IgnoreSoundCloudMatchWarnings { get; private set; }
@@ -347,6 +349,14 @@ sealed class AppArguments
                     }
 
                     v.FixFile = args[++i];
+                    break;
+                case "--export-m3u":
+                    if (v.ExportM3U) Log.Warning($"Argument \"{args[i]}\" already passed");
+                    v.ExportM3U = true;
+                    break;
+                case "--export-pls":
+                    if (v.ExportPLS) Log.Warning($"Argument \"{args[i]}\" already passed");
+                    v.ExportPLS = true;
                     break;
                 default:
                     Log.Error($"Unexpected argument {args[i]}");

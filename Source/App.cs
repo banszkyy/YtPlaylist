@@ -5,7 +5,6 @@ using YoutubeExplode;
 using YoutubeExplode.Playlists;
 using YoutubeExplode.Common;
 using System.Collections.Immutable;
-using System.Text;
 using Google.Apis.YouTube.v3;
 using System.Diagnostics;
 using Quickenshtein;
@@ -170,15 +169,16 @@ sealed class App(AppArguments arguments)
 
             Log.MajorAction($"Fetching & downloading playlist contents");
 
-            using (ProgressBar progressBar = new() { MaxWidth = 70 })
+            using (SteppingProgressBar progressBar = new(library.Playlists.Sum(v => v.Musics.Count)) { MaxWidth = 70 })
             {
-                foreach (Playlist playlist in library.Playlists.WithProgress(progressBar, v => v.Title))
+                foreach (Playlist playlist in library.Playlists)
                 {
                     if (cancellationToken.IsCancellationRequested) return;
+                    progressBar.Step(playlist.Title);
 
                     string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
 
-                    await DownloadPlaylist(youtube, playlist, youTubeCache, online, outputPath, cancellationToken);
+                    await DownloadPlaylist(youtube, playlist, youTubeCache, online, library, outputPath, progressBar, cancellationToken);
                 }
             }
         }
@@ -1071,6 +1071,24 @@ sealed class App(AppArguments arguments)
             await Audacious.AudaciousUtils.RegeneratePlaylists(library, Arguments, cancellationToken);
         }
 
+        if (Arguments.ExportM3U)
+        {
+            Log.Section($"Exporting M3U playlists");
+            foreach (Playlist playlist in library.Playlists)
+            {
+                M3U.M3UExporter.WriteTo(playlist, playlist.Path + ".m3u");
+            }
+        }
+
+        if (Arguments.ExportPLS)
+        {
+            Log.Section($"Exporting PLS playlists");
+            foreach (Playlist playlist in library.Playlists)
+            {
+                M3U.M3UExporter.WriteTo(playlist, playlist.Path + ".pls");
+            }
+        }
+
         if (Arguments.SyncSoundCloudPlaylists)
         {
             Log.Section($"Synchronizing SoundCloud playlists");
@@ -1214,7 +1232,7 @@ sealed class App(AppArguments arguments)
                         Console.Write(']');
                         Console.Write(' ');
                         Console.Write(new string(' ', margin - item.Playlist.Title.Length));
-                        ProgressBar.PrintFilled((double)item.TotalMatches / item.Playlist.Musics.Count, 10);
+                        Console.Write(ProgressBar.Render((double)item.TotalMatches / item.Playlist.Musics.Count, 10, ProgressBar.Barialle));
                         Console.Write(' ');
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
@@ -1389,7 +1407,7 @@ sealed class App(AppArguments arguments)
                         Console.Write(']');
                         Console.Write(' ');
                         Console.Write(new string(' ', margin - item.Playlist.Title.Length));
-                        ProgressBar.PrintFilled((double)item.TotalMatches / item.Playlist.Musics.Count, 10);
+                        Console.Write(ProgressBar.Render((double)item.TotalMatches / item.Playlist.Musics.Count, 10, ProgressBar.Barialle));
                         Console.Write(' ');
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
@@ -1458,7 +1476,7 @@ sealed class App(AppArguments arguments)
 
     #region YouTube
 
-    async Task DownloadPlaylist(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, List<PlaylistVideo> online, string path, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylist(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, List<PlaylistVideo> online, Library library, string path, SteppingProgressBar progressBar, CancellationToken cancellationToken = default)
     {
         Channel<PlaylistVideo> channel = Channel.CreateUnbounded<PlaylistVideo>();
 
@@ -1499,19 +1517,19 @@ sealed class App(AppArguments arguments)
 
         for (int i = 0; i < MaxConcurrency; i++)
         {
-            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, youTubeCache, channel, path, cancellationToken);
+            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, youTubeCache, channel, library, path, progressBar, cancellationToken);
         }
 
         await Task.WhenAll(tasks);
     }
 
-    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, Channel<PlaylistVideo> channel, string path, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, Channel<PlaylistVideo> channel, Library library, string path, SteppingProgressBar progressBar, CancellationToken cancellationToken = default)
     {
         await foreach (PlaylistVideo video in channel.Reader.ReadAllAsync(cancellationToken))
         {
             if (cancellationToken.IsCancellationRequested) break;
-
-            await HandleVideo(youtube, playlist, youTubeCache, video, path, cancellationToken);
+            progressBar.Step();
+            await HandleVideo(youtube, playlist, youTubeCache, video, library, path, cancellationToken);
         }
     }
 
@@ -1521,7 +1539,7 @@ sealed class App(AppArguments arguments)
         return SanitizeFilename($"{meta.GetArtistsText()} - {meta.GetTitleText()}");
     }
 
-    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, YouTubeCache? youtubeCache, PlaylistVideo video, string path, CancellationToken cancellationToken = default)
+    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, YouTubeCache? youtubeCache, PlaylistVideo video, Library library, string path, CancellationToken cancellationToken = default)
     {
         MusicFile? musicFile = playlist.Musics.FirstOrDefault(v => v.Id == video.Id.Value);
         if (musicFile is not null)
@@ -1562,37 +1580,47 @@ sealed class App(AppArguments arguments)
             return;
         }
 
-        Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+        MusicFile? existingElsewhere = library.Musics.FirstOrDefault(v => v.Playlist.YouTubePlaylist.Id != playlist.YouTubePlaylist.Id && v.Id == video.Id);
 
-        try
+        if (existingElsewhere is not null)
         {
-            await RunRetries(
-                (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}", Arguments.YtDlpAdditionalArguments), cancellationToken),
-                GenericHttpRetryFilter,
-                MaxRetries,
-                cancellationToken
-            );
+            MusicFile.Copy(existingElsewhere.Path, filename, true);
         }
-        catch (YtDlpExceptionException)
+        else
         {
-            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
-            return;
-        }
-        catch (HttpRequestException ex)
-        {
-            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int?)ex.StatusCode} ({ex.StatusCode})");
-            return;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex);
-            return;
-        }
 
-        if (!File.Exists(filename))
-        {
-            Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
-            return;
+            Log.MinorAction($"Downloading {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+
+            try
+            {
+                await RunRetries(
+                    (cancellationToken) => Task.Run(() => YtDlp.DownloadAudioData(filename, $"https://www.youtube.com/watch?v={video.Id}", Arguments.YtDlpAdditionalArguments), cancellationToken),
+                    GenericHttpRetryFilter,
+                    MaxRetries,
+                    cancellationToken
+                );
+            }
+            catch (YtDlpExceptionException)
+            {
+                Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+                return;
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}: HTTP {(int?)ex.StatusCode} ({ex.StatusCode})");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+                return;
+            }
+
+            if (!File.Exists(filename))
+            {
+                Log.Error($"Failed to download {Ansi.Bold(video.Author.ChannelTitle)} - {Ansi.Bold(video.Title)}");
+                return;
+            }
         }
 
         playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)

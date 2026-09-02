@@ -68,6 +68,19 @@ public class MusicFile(string path, string id, MusicMeta meta, Playlist playlist
         }
     }
 
+    public static void Copy(string source, string destination, bool @overwrite)
+    {
+        Log.MinorAction($"Copying file from {source} to {destination}");
+        File.Copy(source, destination, overwrite);
+        string lyricsSource = System.IO.Path.ChangeExtension(source, ".lrc");
+        string lyricsDestination = System.IO.Path.ChangeExtension(destination, ".lrc");
+        if (File.Exists(lyricsSource))
+        {
+            Log.MinorAction($"Copying file from {lyricsSource} to {lyricsDestination}");
+            File.Copy(lyricsSource, lyricsDestination, overwrite);
+        }
+    }
+
     public override string ToString() => $"[{Playlist.Title}] {System.IO.Path.GetFileNameWithoutExtension(Path)}";
 
     public void Dispose()

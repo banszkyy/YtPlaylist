@@ -36,11 +36,11 @@ If you specify `--youtube-credentials`, you can also remove the duplicated music
 
 ### SoundCloud sync
 
-- **WIP** Synchronizes the YouTube playlists to SoundCloud
+- **WIP** Synchronizes the YouTube playlists to [<img src="https://a-v2.sndcdn.com/assets/images/sc-icons/favicon-48x48-8466dd3758.png" width=16 height=16> SoundCloud](https://soundcloud.com/)
 
 ### Spotify sync
 
-- **WIP** Synchronizes the YouTube playlists to Spotify
+- **WIP** Synchronizes the YouTube playlists to [<img src="https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png" width=16 height=16> Spotify](https://open.spotify.com/)
 
 ## Example Usage
 
@@ -98,11 +98,13 @@ This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, whe
 - `--ignore-soundcloud-match-warnings` - Ignores warnings related to SoundCloud track matching
 - `--ytdlp <arg>` - Additional ytdlp argument (you can specify multiple)
 - `--save-intermediate-tags` - Saves ID3v2 tags after they are being changed. Will skew up the final diff info, but the tags will be saved if you terminate the app
+- `--export-m3u` - Exports the playlists to [M3U](https://en.wikipedia.org/wiki/M3U) files.
+- `--export-pls` - Exports the playlists to [PLS](https://en.wikipedia.org/wiki/PLS_(file_format)) files.
 - `--use-cache` - For testing only
 - `--reset-meta` - For testing only
 - `--dry` - For testing only
 
-> [!INFO]
+> [!NOTE]
 > For the arguments where you can specify multiple, you have to write the argument name too:
 > Instead of `--playlist meowmeow1 wiwiwi` you should write `--playlist meowmeow1 --playlist wiwiwi`
 
@@ -119,4 +121,4 @@ This will download the playlist into the `./Music/PLAYLIST_NAME/` directory, whe
 
 ## Would you use this?
 
-This program fulfills my needs, so no additional crazy features are planned, but if for you it need some improvements, tell me!
+This program is made for my usecases, but if you need anything tell me and I might as well just implement it. meow meow meow 🐈

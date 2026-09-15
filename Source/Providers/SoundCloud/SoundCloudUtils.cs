@@ -13,6 +13,19 @@ static class SoundCloudUtils
 {
     public static async Task<Track?> MatchTrack(MusicFile musicFile, Library library, SoundCloudClient soundCloudClient, AppArguments arguments, CancellationToken cancellationToken = default)
     {
+        if (musicFile.DescriptionMeta.SoundCloudId != default)
+        {
+            IReadOnlyList<Track> res = await soundCloudClient.GetTracks([musicFile.DescriptionMeta.SoundCloudId], cancellationToken);
+            if (res.Count == 0)
+            {
+                musicFile.DescriptionMeta.SoundCloudId = default;
+            }
+            else
+            {
+                return res[0];
+            }
+        }
+
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
         {

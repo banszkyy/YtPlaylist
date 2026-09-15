@@ -29,3 +29,6 @@ dotnet_diagnostic.IDE0022.severity = silent
 
 # IDE0024: Use block body for operator
 csharp_style_expression_bodied_operators = when_on_single_line
+
+# IDE0220: Add explicit cast
+dotnet_diagnostic.IDE0220.severity = error

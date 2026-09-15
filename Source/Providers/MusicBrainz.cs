@@ -60,74 +60,82 @@ static class MusicBrainz
 
     public static async Task FetchMetadata(MusicFile musicFile, MusicBrainzClient musicBrainz, List<string>? issues, CancellationToken cancellationToken)
     {
-        string? title = FixMetaString(musicFile.Meta.Title);
-        ImmutableArray<string> artists = [.. musicFile.Meta.Performers.Select(FixMetaString)!];
-
         Recording? recording = null;
 
-        if (artists.Length > 1 && !string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
+        if (!string.IsNullOrEmpty(musicFile.DescriptionMeta.MusicBrainzRecordingId))
         {
-            artists = [.. artists.Where(v => !string.Equals(v, musicFile.Meta.RemixedBy, StringComparison.OrdinalIgnoreCase))];
+            recording = await musicBrainz.Recordings.GetAsync(musicFile.DescriptionMeta.MusicBrainzRecordingId);
         }
 
-        StringBuilder queryBuilder = new();
-
-        if (artists.Length > 1)
+        if (recording is null)
         {
-            queryBuilder.Append($"({string.Join(" OR ", artists.Select(v => $"artistname:{v.Quote()}"))})");
-        }
-        else if (artists.Length == 1)
-        {
-            queryBuilder.Append($"artistname:{artists[0].Quote()}");
-        }
+            StringBuilder queryBuilder = new();
 
-        if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
-        queryBuilder.Append($"recording:{title.Quote()}");
+            string? title = FixMetaString(musicFile.Meta.Title);
+            ImmutableArray<string> artists = [.. musicFile.Meta.Performers.Select(FixMetaString)!];
 
-        if (!string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
-        {
+            if (artists.Length > 1 && !string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
+            {
+                artists = [.. artists.Where(v => !string.Equals(v, musicFile.Meta.RemixedBy, StringComparison.OrdinalIgnoreCase))];
+            }
+
+            if (artists.Length > 1)
+            {
+                queryBuilder.Append($"({string.Join(" OR ", artists.Select(v => $"artistname:{v.Quote()}"))})");
+            }
+            else if (artists.Length == 1)
+            {
+                queryBuilder.Append($"artistname:{artists[0].Quote()}");
+            }
+
             if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
-            queryBuilder.Append($"creditname:{musicFile.Meta.RemixedBy.Quote()}");
+            queryBuilder.Append($"recording:{title.Quote()}");
+
+            if (!string.IsNullOrEmpty(musicFile.Meta.RemixedBy))
+            {
+                if (queryBuilder.Length > 0) queryBuilder.Append(" AND ");
+                queryBuilder.Append($"creditname:{musicFile.Meta.RemixedBy.Quote()}");
+            }
+
+            QueryResult<Recording> res;
+            try
+            {
+                res = await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
+            }
+            catch (Exception ex)
+            {
+                if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
+                return;
+            }
+
+            if (res.IsNullOrEmpty())
+            {
+                issues?.Add($"No recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+                return;
+            }
+
+            Debug.Assert(res.Items[0].Score > 0);
+
+            ImmutableArray<Recording> bests = GetBests(res, v => v.Score);
+
+            if (bests.Length > 1)
+            {
+                issues?.Add($"Multiple recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+                return;
+            }
+
+            if (bests[0].Score != 100)
+            {
+                issues?.Add($"Similar recording found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+                return;
+            }
+
+            recording = res.Items[0];
         }
-
-        QueryResult<Recording> res;
-        try
-        {
-            res = await musicBrainz.Recordings.SearchAsync(queryBuilder.ToString());
-        }
-        catch (Exception ex)
-        {
-            if (!cancellationToken.IsCancellationRequested) Log.Error(ex);
-            return;
-        }
-
-        if (res.IsNullOrEmpty())
-        {
-            issues?.Add($"No recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
-            return;
-        }
-
-        Debug.Assert(res.Items[0].Score > 0);
-
-        ImmutableArray<Recording> bests = GetBests(res, v => v.Score);
-
-        if (bests.Length > 1)
-        {
-            issues?.Add($"Multiple recordings found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
-            return;
-        }
-
-        if (bests[0].Score != 100)
-        {
-            issues?.Add($"Similar recording found (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
-            return;
-        }
-
-        recording = res.Items[0];
 
         if (!string.Equals(musicFile.Meta.Title, recording.Title, StringComparison.InvariantCultureIgnoreCase))
         {
-            issues?.Add($"Recording title doesn't match with \"{musicFile.Meta.Title}\" (check https://musicbrainz.org/search?query={Uri.EscapeDataString(queryBuilder.ToString())}&type=recording&limit={25}&method=advanced )");
+            issues?.Add($"Recording title doesn't match with \"{musicFile.Meta.Title}\" (check hthttps://musicbrainz.org/recording/{Uri.EscapeDataString(recording.Id)} )");
         }
 
         musicFile.Meta.Performers = recording.Credits.IsNullOrEmpty() ? musicFile.Meta.Performers : [.. recording.Credits.Select(v => Confusables.Replace(v.Name, Confusables.Equivalents))];
@@ -135,6 +143,9 @@ static class MusicBrainz
         musicFile.Meta.Genres = recording.Genres.IsNullOrEmpty() ? musicFile.Meta.Genres : [.. recording.Genres.Select(v => v.Name) ?? []];
 
         musicFile.OpenTags();
+
+        musicFile.DescriptionMeta.MusicBrainzRecordingId = recording.Id;
+        musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
 
         TagLib.File tagsFile = musicFile.TagsFile;
         Diff tagsDiff = musicFile.TagsDiff;

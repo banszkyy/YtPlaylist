@@ -11,8 +11,13 @@ namespace YtPlaylist;
 
 static class SpotifyUtils
 {
-    public static async Task<SearchResultItem?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
+    public static async Task<IEntity?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
     {
+        if (!string.IsNullOrEmpty(musicFile.DescriptionMeta.SpotifyId))
+        {
+            return await client.GetTrack(musicFile.DescriptionMeta.SpotifyId, cancellationToken);
+        }
+
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
         {

@@ -3,6 +3,11 @@ using J = System.Text.Json.Serialization.JsonPropertyNameAttribute;
 
 namespace YtPlaylist.Spotify;
 
+public interface IEntity
+{
+    string Uri { get; }
+}
+
 public class PathfinderRequest
 {
     [J("variables")] public required PathfinderVariables Variables { get; set; }
@@ -113,7 +118,7 @@ public class MatchedSearchResultItem
     public override string? ToString() => Item.ToString();
 }
 
-public class SearchResultItem
+public class SearchResultItem : IEntity
 {
     [J("albumOfTrack")] public AlbumOfTrack? AlbumOfTrack { get; set; }
     [J("artists")] public Container<Artist0>? Artists { get; set; }
@@ -151,11 +156,11 @@ public class SearchResultItem
     public override string ToString() => $"{Name} <{Uri}>";
 }
 
-public class AlbumOfTrack
+public class AlbumOfTrack : IEntity
 {
     [J("id")] public string? Id { get; set; }
     [J("name")] public string? Name { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
     [J("date")] public Date? Date { get; set; }
     [J("copyright")] public Container<CopyrightItem>? Copyright { get; set; }
@@ -234,7 +239,7 @@ public class Container<T>
     [J("totalCount")] public long TotalCount { get; init; } = 0;
 }
 
-public class Artist0
+public class Artist0 : IEntity
 {
     [J("profile")] public Profile? Profile { get; set; }
     [J("uri")] public required string Uri { get; set; }
@@ -295,7 +300,7 @@ public class Verification
     [J("isVerified")] public bool? IsVerified { get; set; }
 }
 
-public class Owner0
+public class Owner0 : IEntity
 {
     [J("avatar")] public CoverArt? Avatar { get; set; }
     [J("name")] public string? Name { get; set; }
@@ -327,7 +332,7 @@ public class DataWrapper<T> where T : notnull
     public override string? ToString() => Data.ToString();
 }
 
-public class Podcast
+public class Podcast : IEntity
 {
     [J("coverArt")] public CoverArt? CoverArt { get; set; }
     [J("mediaType")] public string? MediaType { get; set; }
@@ -381,7 +386,7 @@ public class PagingInfo
     [J("nextOffset")] public long? NextOffset { get; set; }
 }
 
-public class Playlist
+public class Playlist : IEntity
 {
     [J("content")] public Contents? Content { get; set; }
     [J("abuseReportingEnabled")] public bool? AbuseReportingEnabled { get; set; }
@@ -398,7 +403,7 @@ public class Playlist
     [J("ownerV2")] public DataWrapper<Owner0>? Owner { get; set; }
     [J("revisionId")] public string? RevisionId { get; set; }
     [J("sharingInfo")] public SharingInfo? SharingInfo { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
     [J("watchFeedEntrypoint")] public WatchFeedEntrypoint? WatchFeedEntrypoint { get; set; }
 
@@ -420,23 +425,23 @@ public class Content
     [J("uid")] public string? Uid { get; set; }
 }
 
-public class Profile1
+public class Profile1 : IEntity
 {
     [J("avatar")] public object? Avatar { get; set; }
     [J("name")] public string? Name { get; set; }
     [J("socialHandle")] public object? SocialHandle { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("username")] public string? Username { get; set; }
 
     public override string ToString() => $"{Name} <{Uri}>";
 }
 
-public class ItemV3Data
+public class ItemV3Data : IEntity
 {
     [J("consumptionExperienceTrait")] public ConsumptionExperienceTrait? ConsumptionExperienceTrait { get; set; }
     [J("identityTrait")] public IdentityTrait? IdentityTrait { get; set; }
     [J("playability")] public Playability? Playability { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("visualIdentityTrait")] public VisualIdentity? VisualIdentityTrait { get; set; }
 
     public override string ToString() => $"<{Uri}>";
@@ -451,19 +456,19 @@ public class IdentityTrait
     [J("type")] public string? Type { get; set; }
 }
 
-public class ContentHierarchyParent
+public class ContentHierarchyParent : IEntity
 {
     [J("identityTrait")] public ContentHierarchyParentIdentityTrait? IdentityTrait { get; set; }
     [J("publishingMetadataTrait")] public PublishingMetadataTrait? PublishingMetadataTrait { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
 
     public override string ToString() => $"<{Uri}>";
 }
 
-public class ContributorsItem
+public class ContributorsItem : IEntity
 {
     [J("name")] public string? Name { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
 
     public override string ToString() => $"{Name} <{Uri}>";
 }
@@ -487,10 +492,10 @@ public class ConsumptionExperienceTrait
     [J("formats")] public IReadOnlyList<string>? Formats { get; set; }
 }
 
-public class ItemV2Data
+public class ItemV2Data : IEntity
 {
     [J("trackDuration")] public Duration? TrackDuration { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("albumOfTrack")] public AlbumOfTrack? AlbumOfTrack { get; set; }
     [J("artists")] public Container<Artist0>? Artists { get; set; }
     [J("associationsV3")] public AssociationsV3? Associations { get; set; }
@@ -558,7 +563,7 @@ public class Me
     [J("profile")] public MeProfile? Profile { get; set; }
 }
 
-public class MeProfile
+public class MeProfile : IEntity
 {
     [J("accountId")] public required string AccountId { get; set; }
     [J("avatar")] public object? Avatar { get; set; }
@@ -611,7 +616,7 @@ public class ItemItem
     public override string? ToString() => Data?.ToString();
 }
 
-public class ItemData2
+public class ItemData2 : IEntity
 {
     [J("count")] public long? Count { get; set; }
     [J("image")] public Image? Image { get; set; }
@@ -628,7 +633,7 @@ public class ItemData2
     public override string ToString() => $"{Name} <{Uri}>";
 }
 
-public class Owner1
+public class Owner1 : IEntity
 {
     [J("avatar")] public Avatar? Avatar { get; set; }
     [J("id")] public string? Id { get; set; }
@@ -645,7 +650,7 @@ public class Avatar
     [J("sources")] public IReadOnlyList<ImageSource>? Sources { get; set; }
 }
 
-public class CreatePlaylistResponse
+public class CreatePlaylistResponse : IEntity
 {
     [J("uri")] public required string Uri { get; set; }
     [J("revision")] public string? Revision { get; set; }
@@ -653,7 +658,7 @@ public class CreatePlaylistResponse
     public override string ToString() => $"<{Uri}>";
 }
 
-public class Track0
+public class Track0 : IEntity
 {
     [J("associationsV3")] public AssociationsV3? Associations { get; set; }
     [J("contentRating")] public ContentRating? ContentRating { get; set; }
@@ -706,15 +711,15 @@ public class TracksItem
     public override string? ToString() => Track?.ToString();
 }
 
-public class Track1
+public class Track1 : IEntity
 {
     [J("trackNumber")] public long? TrackNumber { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
 
     public override string ToString() => $"#{TrackNumber} <{Uri}>";
 }
 
-public class Track2
+public class Track2 : IEntity
 {
     [J("discography")] public Discography? Discography { get; set; }
     [J("id")] public string? Id { get; set; }
@@ -726,7 +731,7 @@ public class Track2
     public override string ToString() => $"{Profile} <{Uri}>";
 }
 
-public class Artist1
+public class Artist1 : IEntity
 {
     [J("date")] public Date? Date { get; set; }
     [J("name")] public string? Name { get; set; }
@@ -760,7 +765,7 @@ public class TopTracksItem
     public override string? ToString() => Track?.ToString();
 }
 
-public class Track3
+public class Track3 : IEntity
 {
     [J("albumOfTrack")] public AlbumOfTrack? AlbumOfTrack { get; set; }
     [J("artists")] public Container<Artist0>? Artists { get; set; }
@@ -772,7 +777,7 @@ public class Track3
     [J("playability")] public Playability? Playability { get; set; }
     [J("playcount")] public string? Playcount { get; set; }
     [J("previews")] public Previews? Previews { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
 
     public override string ToString() => $"{Name} <{Uri}>";
 }
@@ -795,11 +800,11 @@ public class RelatedContent
     [J("relatedArtists")] public Container<Artist2>? RelatedArtists { get; set; }
 }
 
-public class Artist2
+public class Artist2 : IEntity
 {
     [J("id")] public string? Id { get; set; }
     [J("profile")] public Profile? Profile { get; set; }
-    [J("uri")] public string? Uri { get; set; }
+    [J("uri")] public required string Uri { get; set; }
     [J("visuals")] public Visuals? Visuals { get; set; }
 
     public override string ToString() => $"<{Uri}>";

@@ -5,11 +5,12 @@ using YoutubeExplode.Videos;
 
 namespace YtPlaylist;
 
-public class MusicFile(string path, string id, MusicMeta meta, Playlist playlist) : IDisposable
+public class MusicFile(string path, DescriptionMeta descriptionMeta, MusicMeta meta, Playlist playlist) : IDisposable
 {
     public string Path = path;
-    public readonly string Id = id;
+    public readonly string Id = descriptionMeta.YouTubeId;
     public readonly Playlist Playlist = playlist;
+    public DescriptionMeta DescriptionMeta = descriptionMeta;
     public PlaylistVideo? PlaylistVideo;
     public Video? Video;
     public MusicMeta Meta = meta;

@@ -299,7 +299,7 @@ partial class SoundCloudClient
         return body.Deserialize<Playlist>() ?? throw new JsonException();
     }
 
-    public async Task<Track> GetTracks(IEnumerable<long> tracks, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Track>> GetTracks(IEnumerable<long> tracks, CancellationToken cancellationToken = default)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"/tracks?{BuildQueryParameters(
             ("ids", string.Join(',', tracks))
@@ -312,6 +312,6 @@ partial class SoundCloudClient
         HandleResponse(res);
 
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
-        return body.Deserialize<Track>() ?? throw new JsonException();
+        return body.Deserialize<IReadOnlyList<Track>>() ?? throw new JsonException();
     }
 }

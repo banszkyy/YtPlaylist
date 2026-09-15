@@ -103,20 +103,17 @@ sealed class App(AppArguments arguments)
                         {
                             if (cancellationToken.IsCancellationRequested) return;
 
-                            MusicFile musicFile;
+                            TagLib.File tagsFile = TagLib.File.Create(filename, TagLib.ReadStyle.PictureLazy);
+                            DescriptionMeta descriptionMeta = DescriptionMeta.Parse(tagsFile.Tag.Description);
 
+                            if (!string.IsNullOrWhiteSpace(descriptionMeta.YouTubeId))
                             {
-                                TagLib.File tagsFile = TagLib.File.Create(filename, TagLib.ReadStyle.PictureLazy);
-
-                                musicFile = new MusicFile(filename, tagsFile.Tag.Description, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), libraryPlaylist)
+                                MusicFile musicFile = new(filename, descriptionMeta, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), libraryPlaylist)
                                 {
                                     TagsFile = tagsFile,
                                     TagsDiff = new Diff(),
                                 };
-                            }
 
-                            if (!string.IsNullOrWhiteSpace(musicFile.TagsFile.Tag.Description))
-                            {
                                 if (Arguments.RecreateMetadata)
                                 {
                                     musicFile.TagsFile.Tag.Album = musicFile.TagsDiff.Modify("Album", musicFile.TagsFile.Tag.Album, default);
@@ -157,7 +154,6 @@ sealed class App(AppArguments arguments)
                             }
                             else
                             {
-                                musicFile.Dispose();
                                 unexpectedMusicFiles.Add(filename);
                             }
                         }
@@ -420,41 +416,48 @@ sealed class App(AppArguments arguments)
                 },
             };
 
-            using (ProgressBar progressBar = new() { MaxWidth = 70 })
+            try
             {
-                foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar, v => v.ToString()))
+                using (ProgressBar progressBar = new() { MaxWidth = 70 })
                 {
-                    if (cancellationToken.IsCancellationRequested) return;
-                    if (!File.Exists(musicFile.Path)) continue;
-
-                    string outputPath = Path.Combine(Arguments.OutputPath, musicFile.Playlist.Title);
-
-                    string name = Path.GetFileNameWithoutExtension(musicFile.Path);
-                    string? originalFilename = musicFile.PlaylistVideo is not null ? GetFileNameWithoutExtension(musicFile.PlaylistVideo) : null;
-
-                    musicFile.OpenTags();
-
-                    if (string.IsNullOrEmpty(musicFile.TagsFile.Tag.MusicBrainzReleaseId))
+                    foreach (MusicFile musicFile in library.Musics.ToArray().WithProgress(progressBar, v => v.ToString()))
                     {
-                        List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
+                        if (cancellationToken.IsCancellationRequested) return;
+                        if (!File.Exists(musicFile.Path)) continue;
 
-                        await MusicBrainz.FetchMetadata(musicFile, musicBrainz, issues, cancellationToken);
+                        string outputPath = Path.Combine(Arguments.OutputPath, musicFile.Playlist.Title);
 
-                        if (issues is not null && issues.Count > 0)
+                        string name = Path.GetFileNameWithoutExtension(musicFile.Path);
+                        string? originalFilename = musicFile.PlaylistVideo is not null ? GetFileNameWithoutExtension(musicFile.PlaylistVideo) : null;
+
+                        musicFile.OpenTags();
+
+                        if (string.IsNullOrEmpty(musicFile.TagsFile.Tag.MusicBrainzReleaseId))
                         {
-                            Log.Warning($"MusicBrainz issues for {musicFile.Meta}:");
-                            foreach (string issue in issues)
+                            List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
+
+                            await MusicBrainz.FetchMetadata(musicFile, musicBrainz, issues, cancellationToken);
+
+                            if (issues is not null && issues.Count > 0)
                             {
-                                Log.WarningNoprefix(issue);
+                                Log.Warning($"MusicBrainz issues for {musicFile.Meta}:");
+                                foreach (string issue in issues)
+                                {
+                                    Log.WarningNoprefix(issue);
+                                }
                             }
-                        }
 
-                        if (Arguments.SaveIntermediateTags && musicFile.SaveTags(Arguments.DryRun))
-                        {
-                            Changes.Add(new(musicFile, ChangeType.Modify));
+                            if (Arguments.SaveIntermediateTags && musicFile.SaveTags(Arguments.DryRun))
+                            {
+                                Changes.Add(new(musicFile, ChangeType.Modify));
+                            }
                         }
                     }
                 }
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error(ex);
             }
         }
 
@@ -630,7 +633,7 @@ sealed class App(AppArguments arguments)
                                 item.File.Playlist.Musics.RemoveAll(v => v.Id == video.Id);
                                 Changes.Add(new(item.File, ChangeType.Delete));
 
-                                MusicFile newFile = new(destination, item.File.Id, item.File.Meta, item.Playlist);
+                                MusicFile newFile = new(destination, item.File.DescriptionMeta, item.File.Meta, item.Playlist);
                                 item.Playlist.Musics.Add(newFile);
                                 Changes.Add(new(newFile, ChangeType.Create));
                             }
@@ -724,7 +727,8 @@ sealed class App(AppArguments arguments)
 
                         if (isBad && fallbackIfBad)
                         {
-                            tag.RemoveFrame(TagLib.Id3v2.SynchronisedLyricsFrame.Get(tag, lyricsDescription, lyricsLanguage, TagLib.Id3v2.SynchedTextType.Lyrics, false));
+                            TagLib.Id3v2.SynchronisedLyricsFrame? frame = TagLib.Id3v2.SynchronisedLyricsFrame.Get(tag, lyricsDescription, lyricsLanguage, TagLib.Id3v2.SynchedTextType.Lyrics, false);
+                            if (frame is not null) tag.RemoveFrame(frame);
                             synchedTexts = null;
                             synchedText = null;
                         }
@@ -1144,6 +1148,10 @@ sealed class App(AppArguments arguments)
 
                             if (track is not null)
                             {
+                                musicFile.DescriptionMeta.SoundCloudId = track.Id;
+                                musicFile.OpenTags();
+                                musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
+
                                 if (tracks.Any(v => v.Id == track.Id))
                                 {
                                     Log.Warning($"Skipping adding track {track.Title} multiple times");
@@ -1291,9 +1299,6 @@ sealed class App(AppArguments arguments)
             }
             else
             {
-                List<(Playlist Playlist, Spotify.SearchResultItem Track)> added = [];
-                List<(Playlist Playlist, Spotify.Content Track)> removed = [];
-
                 try
                 {
                     Spotify.SpotifyCredentials? credentials = JsonSerializer.Deserialize<Spotify.SpotifyCredentials>(File.ReadAllText(Arguments.SpotifyCredentialsPath)) ?? throw new JsonException();
@@ -1326,16 +1331,20 @@ sealed class App(AppArguments arguments)
 
                         Log.MinorAction($"Generating playlist {playlistContent.Title}");
 
-                        List<Spotify.SearchResultItem> tracks = [];
+                        List<Spotify.IEntity> tracks = [];
                         foreach (MusicFile musicFile in playlistContent.Musics)
                         {
-                            Spotify.SearchResultItem? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
+                            Spotify.IEntity? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
 
                             if (track is null) continue;
 
+                            musicFile.DescriptionMeta.SpotifyId = track.Uri;
+                            musicFile.OpenTags();
+                            musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
+
                             if (tracks.Any(v => v.Uri == track.Uri))
                             {
-                                Log.Warning($"Skipping adding track {track.Name} <{track.Uri}> multiple times");
+                                Log.Warning($"Skipping adding track {track} multiple times");
                                 continue;
                             }
 
@@ -1375,7 +1384,10 @@ sealed class App(AppArguments arguments)
 
                         if (existingSpotifyPlaylistUri is null) continue;
 
-                        foreach (Spotify.SearchResultItem track in tracks)
+                        List<(Playlist Playlist, Spotify.IEntity Track)> added = [];
+                        List<(Playlist Playlist, Spotify.Content Track)> removed = [];
+
+                        foreach (Spotify.IEntity track in tracks)
                         {
                             if (spotifyPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Uri)) continue;
                             added.Add((playlistContent, track));
@@ -1396,6 +1408,23 @@ sealed class App(AppArguments arguments)
                                 if (removed.Count > 0) await client.RemoveFromPlaylist(existingSpotifyPlaylistUri, removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
                                 await client.SetPlaylistDescription(existingSpotifyPlaylistUri.Split(':')[^1], $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})", cancellationToken);
                             }
+
+                            List<Change<(Playlist Playlist, string Track)>> changes = [
+                                .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track}".TrimStart()), ChangeType.Create)),
+                                .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
+                            ];
+
+                            Console.WriteLine();
+
+                            YtPlaylist.Changes.Print(changes, v =>
+                            {
+                                Console.Write('[');
+                                Console.Write(v.Playlist.Title);
+                                Console.Write(']');
+                                Console.Write(' ');
+                                Console.Write(v.Track);
+                                Console.WriteLine();
+                            });
                         }
                     }
 
@@ -1418,26 +1447,6 @@ sealed class App(AppArguments arguments)
                     Log.Error($"Failed to sync Spotify playlists");
                     Log.Error(ex);
                 }
-
-                List<Change<(Playlist Playlist, string Track)>> changes = [
-                    .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track.Name} <{v.Track.Uri}>".TrimStart()), ChangeType.Create)),
-                    .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
-                ];
-
-                if (changes.Count > 0)
-                {
-                    Console.WriteLine();
-                }
-
-                YtPlaylist.Changes.Print(changes, v =>
-                {
-                    Console.Write('[');
-                    Console.Write(v.Playlist.Title);
-                    Console.Write(']');
-                    Console.Write(' ');
-                    Console.Write(v.Track);
-                    Console.WriteLine();
-                });
             }
         }
 
@@ -1563,7 +1572,7 @@ sealed class App(AppArguments arguments)
 
         if (File.Exists(filename))
         {
-            playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
+            playlist.Musics.Add(musicFile = new MusicFile(filename, new DescriptionMeta() { YouTubeId = video.Id }, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
             {
                 PlaylistVideo = video,
             });
@@ -1623,7 +1632,7 @@ sealed class App(AppArguments arguments)
             }
         }
 
-        playlist.Musics.Add(musicFile = new MusicFile(filename, video.Id, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
+        playlist.Musics.Add(musicFile = new MusicFile(filename, new DescriptionMeta() { YouTubeId = video.Id }, new MusicMeta([], Path.GetFileNameWithoutExtension(filename)), playlist)
         {
             PlaylistVideo = video,
         });
@@ -1636,7 +1645,7 @@ sealed class App(AppArguments arguments)
 
         musicFile.OpenTags();
 
-        musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, video.Id.Value);
+        musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
 
         if (Arguments.Metadata)
         {

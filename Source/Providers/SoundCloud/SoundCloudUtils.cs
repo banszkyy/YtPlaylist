@@ -26,6 +26,10 @@ static class SoundCloudUtils
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(arguments.SoundCloudDebugPath)) Directory.CreateDirectory(Path.Combine(arguments.SoundCloudDebugPath, musicFile.Playlist.Title));
+
+        using FileWriter? writer = arguments.SoundCloudDebugPath is null ? null : new FileWriter(Path.Combine(arguments.SoundCloudDebugPath!, musicFile.Playlist.Title, Path.GetFileNameWithoutExtension(musicFile.Path) + ".md"));
+
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
         {
@@ -33,32 +37,45 @@ static class SoundCloudUtils
             searchingMeta = MetaGuesser.Guess(musicFile.TagsFile.Tag);
         }
 
+        writer?.WriteLine();
+        writer?.WriteLine($"# {musicFile.Meta}");
+        writer?.WriteLine();
+        writer?.WriteLine("```json");
+        writer?.WriteLine(musicFile.Meta.ToJSON());
+        writer?.WriteLine("```");
+        writer?.WriteLine();
+
         if (searchingMeta.Performers.Length == 0)
         {
-            Log.Warning($"Music file {musicFile.Meta} has no performers, skipping");
+            writer?.WriteLine($"⚠ Music file has no performers");
             return null;
         }
 
         if (string.IsNullOrWhiteSpace(searchingMeta.Title))
         {
-            Log.Warning($"Music file {musicFile.Meta} has no title, skipping");
+            writer?.WriteLine($"⚠ Music file has no title");
             return null;
         }
 
-        ImmutableDictionary<int, string?> confusablesAccentsMap = Confusables.CombineMaps(await Confusables.Fetch(arguments), Confusables.Accents);
+        //ImmutableDictionary<int, string?> confusablesAccentsMap = Confusables.CombineMaps(await Confusables.Fetch(arguments), Confusables.Accents);
         ImmutableDictionary<int, string?> equivalentsAccentsMap = Confusables.CombineMaps(Confusables.Equivalents, Confusables.Accents);
-        MetaStringEqualityComparer metaStringEqualityComparer = new(confusablesAccentsMap, StringComparison.InvariantCultureIgnoreCase);
+        MetaStringEqualityComparer metaStringEqualityComparer = new(equivalentsAccentsMap, StringComparison.InvariantCultureIgnoreCase, -5);
 
         List<string> artistPermalinks = [];
 
         if (musicFile.Video is not null)
         {
             Regex soundcloudLinkRegex = new(@"https:\/\/(www.)?soundcloud.com\/([a-z0-9-]*)");
-            foreach (string permalink in soundcloudLinkRegex.Matches(musicFile.Video.Description).Select(v => v.Groups[1].Value))
+            foreach (Match url in soundcloudLinkRegex.Matches(musicFile.Video.Description).Select(v => v))
             {
+                string permalink = url.Groups[2].Value;
                 if (artistPermalinks.Any(v => v == permalink)) continue;
 
                 artistPermalinks.Add(permalink);
+                writer?.WriteLine($"Artist url: {url.Value}");
+                writer?.WriteLine();
+                writer?.WriteLine($"Artist permalink: `{permalink}`");
+                writer?.WriteLine();
             }
         }
 
@@ -69,11 +86,16 @@ static class SoundCloudUtils
                 if (video is null) continue;
 
                 Regex soundcloudLinkRegex = new(@"https:\/\/(www.)?soundcloud.com\/([a-z0-9-]*)");
-                foreach (string permalink in soundcloudLinkRegex.Matches(video.Description).Select(v => v.Groups[2].Value))
+                foreach (Match url in soundcloudLinkRegex.Matches(video.Description))
                 {
+                    string permalink = url.Groups[2].Value;
                     if (artistPermalinks.Any(v => v == permalink)) continue;
 
                     artistPermalinks.Add(permalink);
+                    writer?.WriteLine($"Artist url: {url.Value}");
+                    writer?.WriteLine();
+                    writer?.WriteLine($"Artist permalink: `{permalink}`");
+                    writer?.WriteLine();
                 }
             }
         }
@@ -85,7 +107,11 @@ static class SoundCloudUtils
             if (verifiedUsers.Any(v => v.Permalink == permalink)) continue;
 
             User? user = await soundCloudClient.GetUserFromPermalink(permalink, cancellationToken);
-            if (user is null) continue;
+            if (user is null)
+            {
+                writer?.WriteLine($"⚠ User not found with permalink: `{permalink}`");
+                continue;
+            }
 
             if (verifiedUsers.Any(v => v.Permalink == user.Permalink)) continue;
 
@@ -93,10 +119,17 @@ static class SoundCloudUtils
             bool verifiedLink = false;
             foreach (WebProfile item in webProfiles)
             {
+                writer?.WriteLine($"User web profile with permalink: `{permalink}`");
+                writer?.WriteLine("```json");
+                writer?.WriteLine(item.ToJSON());
+                writer?.WriteLine("```");
+
                 if (item.Network != "youtube") continue;
                 if (item.Username is null) continue;
                 if (!item.Username.Equals(musicFile.PlaylistVideo?.Author.ChannelTitle, StringComparison.InvariantCultureIgnoreCase)) continue;
 
+                writer?.WriteLine($"**Verified**");
+                writer?.WriteLine();
                 verifiedLink = true;
                 break;
             }
@@ -114,6 +147,8 @@ static class SoundCloudUtils
             if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title);
             if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
             queries.Add(query.ToString());
+            writer?.WriteLine($"Query: [{query}](https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())})");
+            writer?.WriteLine();
         }
 
         if (searchingMeta.Title.Contains("soundtrack", StringComparison.InvariantCultureIgnoreCase))
@@ -123,6 +158,8 @@ static class SoundCloudUtils
             if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title.Replace("soundtrack", "OST", StringComparison.InvariantCultureIgnoreCase));
             if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
             queries.Add(query.ToString());
+            writer?.WriteLine($"Query: [{query}](https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())})");
+            writer?.WriteLine();
         }
 
         List<Track> queryRes2 = [];
@@ -154,6 +191,7 @@ static class SoundCloudUtils
                     Log.Warning($"Absolute no track found for query \"{query}\" (check https://soundcloud.com/search/sounds?q={HttpUtility.UrlEncode(query.ToString())} )");
                 }
             }
+            writer?.WriteLine($"❌ No tracks");
             return null;
         }
 
@@ -181,6 +219,11 @@ static class SoundCloudUtils
             List<string> artistMatchIssues = [];
             List<string> titleMatchIssues = [];
             List<string> remixMatchIssues = [];
+
+            writer?.WriteLine($"Track:");
+            writer?.WriteLine("```json");
+            writer?.WriteLine(item.ToJSON());
+            writer?.WriteLine("```");
 
             bool MatchArtists(ImmutableArray<string> scArtists)
             {
@@ -223,12 +266,21 @@ static class SoundCloudUtils
             if (item.PublisherMetadata?.Artist is not null)
             {
                 ImmutableArray<string> scArtists = MetaGuesser.ParseArtists(Confusables.Replace(item.PublisherMetadata.Artist, Confusables.Equivalents));
+                writer?.WriteLine($"Parsed artists: {string.Join(", ", scArtists.Select(v => $"`{v}`"))}");
+                writer?.WriteLine();
 
                 artistMatch = MatchArtists(scArtists);
 
                 if (!artistMatch)
                 {
                     artistMatchIssues.Add($"Artist \"{string.Join(" & ", scArtists)}\" doesn't match with \"{string.Join(" & ", searchingMeta.Performers)}\"");
+                    writer?.WriteLine($"❌ Artists doesn't match: {string.Join(", ", scArtists.Select(v => $"`{v}`"))} != {string.Join(", ", searchingMeta.Performers.Select(v => $"`{v}`"))}");
+                    writer?.WriteLine();
+                }
+                else
+                {
+                    writer?.WriteLine($"✅ Artists does match: {string.Join(", ", scArtists.Select(v => $"`{v}`"))} == {string.Join(", ", searchingMeta.Performers.Select(v => $"`{v}`"))}");
+                    writer?.WriteLine();
                 }
             }
             else if (item.User is not null
@@ -239,16 +291,22 @@ static class SoundCloudUtils
                 {
                     artistMatch = false;
                     artistMatchIssues.Add($"Artist {item.User.Username} isn't verified");
+                    writer?.WriteLine($"❌ Artist isn't verified: `{item.User.Username}`");
+                    writer?.WriteLine();
                 }
                 else
                 {
                     artistMatch = true;
+                    writer?.WriteLine($"✅ Artist is verified: `{item.User.Username}`");
+                    writer?.WriteLine();
                 }
             }
             else
             {
                 artistMatch = false;
                 artistMatchIssues.Add($"No reliable artist found for track");
+                writer?.WriteLine($"❌ No artists found");
+                writer?.WriteLine();
             }
 
             if (item.PublisherMetadata?.ReleaseTitle is not null)
@@ -258,6 +316,13 @@ static class SoundCloudUtils
                 if (!titleMatch)
                 {
                     titleMatchIssues.Add($"Title \"{item.PublisherMetadata.ReleaseTitle}\" doesn't match with \"{searchingMeta.Title}\"");
+                    writer?.WriteLine($"❌ Title doesn't match: `{Confusables.Replace(item.PublisherMetadata.ReleaseTitle, Confusables.Equivalents)}` != `{searchingMeta.Title}`");
+                    writer?.WriteLine();
+                }
+                else
+                {
+                    writer?.WriteLine($"✅ Title does match: `{Confusables.Replace(item.PublisherMetadata.ReleaseTitle, Confusables.Equivalents)}` == `{searchingMeta.Title}`");
+                    writer?.WriteLine();
                 }
             }
             else if (item.Title is not null)
@@ -267,12 +332,21 @@ static class SoundCloudUtils
                 if (!titleMatch)
                 {
                     titleMatchIssues.Add($"Title \"{item.Title}\" doesn't match with \"{searchingMeta.Title}\"");
+                    writer?.WriteLine($"❌ Title doesn't match: `{Confusables.Replace(item.Title, Confusables.Equivalents)}` != `{searchingMeta.Title}`");
+                    writer?.WriteLine();
+                }
+                else
+                {
+                    writer?.WriteLine($"✅ Title does match: `{Confusables.Replace(item.Title, Confusables.Equivalents)}` == `{searchingMeta.Title}`");
+                    writer?.WriteLine();
                 }
             }
             else
             {
                 titleMatch = false;
                 titleMatchIssues.Add($"No reliable title found for track");
+                writer?.WriteLine($"❌ No title found");
+                writer?.WriteLine();
             }
 
             MusicMeta meta;
@@ -280,11 +354,18 @@ static class SoundCloudUtils
             {
                 meta = MetaGuesser.Guess(Confusables.Replace(item.Title, Confusables.Equivalents));
 
+                writer?.WriteLine($"Parsed meta from title `{Confusables.Replace(item.Title, Confusables.Equivalents)}`");
+                writer?.WriteLine("```json");
+                writer?.WriteLine(meta.ToJSON());
+                writer?.WriteLine("```");
+
                 if (!artistMatch)
                 {
                     if (meta.Performers.IsDefaultOrEmpty)
                     {
                         artistMatchIssues.Add($"Couldn't extract artists from the title \"{item.Title}\"");
+                        writer?.WriteLine($"❌ Couldn't extract artists");
+                        writer?.WriteLine();
                     }
                     else
                     {
@@ -292,6 +373,13 @@ static class SoundCloudUtils
                         if (!artistMatch)
                         {
                             artistMatchIssues.Add($"Artist \"{string.Join(" & ", meta.Performers)}\" doesn't match with \"{string.Join(" & ", searchingMeta.Performers)}\"");
+                            writer?.WriteLine($"❌ Artists doesn't match: {string.Join(", ", meta.Performers.Select(v => $"`{v}`"))} != {string.Join(", ", searchingMeta.Performers.Select(v => $"`{v}`"))}");
+                            writer?.WriteLine();
+                        }
+                        else
+                        {
+                            writer?.WriteLine($"✅ Artists does match: {string.Join(", ", meta.Performers.Select(v => $"`{v}`"))} == {string.Join(", ", searchingMeta.Performers.Select(v => $"`{v}`"))}");
+                            writer?.WriteLine();
                         }
                     }
                 }
@@ -302,6 +390,13 @@ static class SoundCloudUtils
                     if (!titleMatch)
                     {
                         titleMatchIssues.Add($"Title \"{meta.Title}\" doesn't match with \"{searchingMeta.Title}\"");
+                        writer?.WriteLine($"❌ Title doesn't match: `{meta.Title}` != `{searchingMeta.Title}`");
+                        writer?.WriteLine();
+                    }
+                    else
+                    {
+                        writer?.WriteLine($"✅ Title does match: `{meta.Title}` == `{searchingMeta.Title}`");
+                        writer?.WriteLine();
                     }
                 }
 
@@ -313,6 +408,8 @@ static class SoundCloudUtils
                         if (!remixMatch)
                         {
                             titleMatchIssues.Add($"Remixer detected but searching for none");
+                            writer?.WriteLine($"❌ Remixer detected but searching for none");
+                            writer?.WriteLine();
                         }
                     }
                 }
@@ -324,11 +421,20 @@ static class SoundCloudUtils
                         if (meta.RemixedBy is null)
                         {
                             remixMatchIssues.Add($"Remixer not detected but searching for \"{searchingMeta.RemixedBy}\"");
+                            writer?.WriteLine($"❌ Remixer not detected but searching for: `{searchingMeta.RemixedBy}`");
+                            writer?.WriteLine();
                         }
                         else
                         {
                             remixMatchIssues.Add($"Remixer \"{meta.RemixedBy}\" doesn't match with \"{searchingMeta.RemixedBy}\"");
+                            writer?.WriteLine($"❌ Remixer doesn't match: `{meta.RemixedBy}` != `{searchingMeta.RemixedBy}`");
+                            writer?.WriteLine();
                         }
+                    }
+                    else
+                    {
+                        writer?.WriteLine($"✅ Remixer does match: `{meta.RemixedBy}` == `{searchingMeta.RemixedBy}`");
+                        writer?.WriteLine();
                     }
                 }
             }
@@ -373,6 +479,11 @@ static class SoundCloudUtils
                     if (removed > 0) queryKeywords.RemoveAt(i--);
                 }
 
+                writer?.WriteLine($"Unmatched track keywords: {string.Join(", ", trackKeywords.Select(v => $"`{v}`"))}");
+                writer?.WriteLine();
+                writer?.WriteLine($"Unmatched query keywords: {string.Join(", ", queryKeywords.Select(v => $"`{v}`"))}");
+                writer?.WriteLine();
+
                 if (queryKeywords.Count == 0 && trackKeywords.Count == 0)
                 {
                     artistMatch = true;
@@ -382,6 +493,9 @@ static class SoundCloudUtils
                     score = (artistMatch ? 1 : 0) + (titleMatch ? 1 : 0) + (remixMatch ? 1 : 0);
                 }
             }
+
+            writer?.WriteLine($"Score: {score}");
+            writer?.WriteLine();
 
             if (artistMatch) artistMatchIssues.Clear();
             else if (artistMatchIssues.Count == 0) artistMatchIssues.Add($"Artists not matched");
@@ -414,8 +528,13 @@ static class SoundCloudUtils
                 continue;
             }
 
+            writer?.WriteLine($"## ✅ MATCH");
+            writer?.Filename = null;
+
             return item;
         }
+
+        writer?.WriteLine($"## ❌ NO MATCH");
 
         if (!arguments.IgnoreSoundCloudMatchWarnings)
         {

@@ -14,6 +14,8 @@ sealed class AppArguments
     public string? YouTubeCredentialsPath { get; private set; }
     public string? SoundCloudCredentialsPath { get; private set; }
     public string? SpotifyCredentialsPath { get; private set; }
+    public string? SoundCloudDebugPath { get; private set; }
+    public string? SpotifyDebugPath { get; private set; }
     public ImmutableArray<string> CookiesPaths { get; private set; } = [];
     public bool DryRun { get; private set; }
     public bool Download { get; private set; } = true;
@@ -184,6 +186,40 @@ sealed class AppArguments
                     }
 
                     v.SpotifyCredentialsPath = args[++i];
+                    break;
+                case "--soundcloud-debug":
+                    if (v.SoundCloudDebugPath is not null)
+                    {
+                        Log.Error($"SoundCloud debug path already defined");
+                        success = false;
+                        continue;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.SoundCloudDebugPath = args[++i];
+                    break;
+                case "--spotify-debug":
+                    if (v.SpotifyDebugPath is not null)
+                    {
+                        Log.Error($"Spotify debug path already defined");
+                        success = false;
+                        continue;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.SpotifyDebugPath = args[++i];
                     break;
                 case "--cookies":
                     if (i + 1 == args.Length)

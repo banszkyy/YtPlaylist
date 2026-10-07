@@ -12,6 +12,7 @@ using System.Net;
 using HttpCache;
 using YtPlaylist.SoundCloud;
 using System.Text.Json;
+using YtPlaylist.FFMPEG.Probe;
 
 namespace YtPlaylist;
 
@@ -347,7 +348,7 @@ sealed class App(AppArguments arguments)
 
                                 foreach (MusicFile file in libraryPlaylist.Musics.Where(v => v.Id == video.Id))
                                 {
-                                    MusicFile.Delete(file);
+                                    if (!Arguments.DryRun) MusicFile.Delete(file);
                                     Changes.Add(new(file, ChangeType.Delete));
                                 }
                                 libraryPlaylist.Musics.RemoveAll(v => v.Id == video.Id);
@@ -380,17 +381,17 @@ sealed class App(AppArguments arguments)
                 Console.WriteLine();
             }
 
-            if (!Arguments.DryRun && await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
+            if (await Log.AskYesNoAsync("Do you want to delete the files above?", true, cancellationToken))
             {
                 Log.MinorAction("Deleting music files");
                 using (ProgressBar progressBar = new() { MaxWidth = 70 })
                 {
                     foreach (MusicFile file in deleteFiles.WithProgress(progressBar, v => v.ToString()))
                     {
-                        MusicFile.Delete(file);
+                        if (!Arguments.DryRun) MusicFile.Delete(file);
                         Changes.Add(new(file, ChangeType.Delete));
 
-                        file.Playlist.Musics.RemoveAll(v => v.Id == file.Id);
+                        file.Playlist.Musics.Remove(file);
                         if (file.PlaylistVideo is not null) online.Remove(file.PlaylistVideo);
                     }
                 }
@@ -1008,12 +1009,23 @@ sealed class App(AppArguments arguments)
                         for (int i = 0; i < items.Length; i++)
                         {
                             MusicFile item = items[i];
+                            FFProbeResult? probe = await FFMPEG.Probe.FFProbe.Probe(item.Path, cancellationToken);
+                            string? kbps = null;
+                            if (probe is not null)
+                            {
+                                FFMPEG.Probe.Stream? stream = probe.Streams?.FirstOrDefault(v => v.CodecType == "audio");
+                                if (stream is not null && stream.BitRate is not null && int.TryParse(stream.BitRate, out int bitRate))
+                                {
+                                    kbps += $"{(int)(bitRate / 1024)} kbps";
+                                }
+                            }
+
                             Console.Write("    ");
                             Console.ForegroundColor = ConsoleColor.Blue;
                             Console.Write(i + 1);
                             Console.ResetColor();
                             Console.Write(" - ");
-                            Console.Write($"[{item.Playlist.Title}] {item.PlaylistVideo.ThrowIfNull().Author} - {item.PlaylistVideo.Title} (check https://www.youtube.com/watch?v={item.PlaylistVideo.Id} )");
+                            Console.Write($"[{item.Playlist.Title}] {item.PlaylistVideo.ThrowIfNull().Author} - {item.PlaylistVideo.Title} (check https://www.youtube.com/watch?v={item.PlaylistVideo.Id} ){(kbps is null ? null : $" ({kbps})")}");
                             Console.WriteLine();
                         }
 
@@ -1050,12 +1062,9 @@ sealed class App(AppArguments arguments)
                                     continue;
                                 }
 
-                                foreach (MusicFile file in v.Playlist.Musics.Where(v => v.Id == v.PlaylistVideo.ThrowIfNull().Id))
-                                {
-                                    MusicFile.Delete(file);
-                                    Changes.Add(new(file, ChangeType.Delete));
-                                }
-                                v.Playlist.Musics.RemoveAll(v => v.Id == v.PlaylistVideo.ThrowIfNull().Id);
+                                if (!Arguments.DryRun) MusicFile.Delete(v);
+                                Changes.Add(new(v, ChangeType.Delete));
+                                v.Playlist.Musics.Remove(v);
                                 online.Remove(v.PlaylistVideo);
                             }
                             catch (Exception ex)
@@ -1131,102 +1140,101 @@ sealed class App(AppArguments arguments)
                     Log.MinorAction($"Fetching existing playlists");
                     ImmutableArray<SoundCloud.Playlist> existingPlaylists = [.. await soundCloudClient.GetPlaylists(me.Id, cancellationToken).ToArrayAsync(cancellationToken)];
 
-                    foreach (Playlist playlistContent in library.Playlists)
+                    Log.MinorAction($"Matching music");
+                    using (SteppingProgressBar progress = new(library.Musics.Count()))
                     {
-                        if (Arguments.SoundCloudIgnore.Contains(playlistContent.YouTubePlaylist.Id)
-                            || Arguments.SoundCloudIgnore.Contains(playlistContent.Title, StringComparer.InvariantCultureIgnoreCase))
+                        foreach (Playlist playlistContent in library.Playlists)
                         {
-                            continue;
-                        }
-
-                        Log.MinorAction($"Generating playlist {playlistContent.Title}");
-
-                        List<Track> tracks = [];
-                        foreach (MusicFile musicFile in playlistContent.Musics)
-                        {
-                            Track? track = await SoundCloudUtils.MatchTrack(musicFile, library, soundCloudClient, Arguments, cancellationToken);
-
-                            if (track is not null)
+                            if (Arguments.SoundCloudIgnore.Contains(playlistContent.YouTubePlaylist.Id)
+                                || Arguments.SoundCloudIgnore.Contains(playlistContent.Title, StringComparer.InvariantCultureIgnoreCase))
                             {
-                                musicFile.DescriptionMeta.SoundCloudId = track.Id;
-                                musicFile.OpenTags();
-                                musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
+                                progress.Step(playlistContent.Musics.Count);
+                                continue;
+                            }
 
-                                if (tracks.Any(v => v.Id == track.Id))
+                            progress.Step(playlistContent.Title);
+
+                            List<Track> tracks = [];
+                            foreach (MusicFile musicFile in playlistContent.Musics)
+                            {
+                                progress.Step();
+
+                                Track? track = await SoundCloudUtils.MatchTrack(musicFile, library, soundCloudClient, Arguments, cancellationToken);
+
+                                if (track is not null)
                                 {
-                                    Log.Warning($"Skipping adding track {track.Title} multiple times");
-                                    continue;
+                                    musicFile.DescriptionMeta.SoundCloudId = track.Id;
+                                    musicFile.OpenTags();
+                                    musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
+
+                                    if (tracks.Any(v => v.Id == track.Id))
+                                    {
+                                        Log.Warning($"Skipping adding track {track.Title} multiple times");
+                                        continue;
+                                    }
+                                    tracks.Add(track);
                                 }
-                                tracks.Add(track);
-                            }
-                        }
-
-                        SoundCloud.Playlist? existingScPlaylist = existingPlaylists.FirstOrDefault(v => v.Title == playlistContent.Title);
-                        totalSearches += playlistContent.Musics.Count;
-                        totalMatches += tracks.Count;
-                        statisticsPerPlaylist.Add((playlistContent, tracks.Count));
-                        if (existingScPlaylist is null)
-                        {
-                            foreach (Track track in tracks)
-                            {
-                                changes.Add(new((playlistContent, track), ChangeType.Create));
                             }
 
-                            if (tracks.Count == 0)
+                            SoundCloud.Playlist? existingScPlaylist = existingPlaylists.FirstOrDefault(v => v.Title == playlistContent.Title);
+                            totalSearches += playlistContent.Musics.Count;
+                            totalMatches += tracks.Count;
+                            statisticsPerPlaylist.Add((playlistContent, tracks.Count));
+                            if (existingScPlaylist is null)
                             {
-                                Log.Warning($"Skipping creating playlist {playlistContent.Title} because it would be empty");
+                                foreach (Track track in tracks)
+                                {
+                                    changes.Add(new((playlistContent, track), ChangeType.Create));
+                                }
+
+                                if (tracks.Count == 0)
+                                {
+                                    Log.Warning($"Skipping creating playlist {playlistContent.Title} because it would be empty");
+                                }
+                                else
+                                {
+                                    Log.MinorAction($"Creating playlist {playlistContent.Title}");
+                                    if (!Arguments.DryRun)
+                                    {
+                                        await soundCloudClient.CreatePlaylist(new()
+                                        {
+                                            Permalink = string.Empty,
+                                            Title = playlistContent.Title,
+                                            Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
+                                            Tracks = [.. tracks.Select(v => v.Id)],
+                                            Sharing = "private",
+                                        }, cancellationToken);
+                                    }
+                                }
                             }
                             else
                             {
-                                Log.MinorAction($"Creating playlist {playlistContent.Title}");
-                                if (!Arguments.DryRun)
+                                foreach (Track track in tracks)
                                 {
-                                    await soundCloudClient.CreatePlaylist(new()
-                                    {
-                                        Permalink = string.Empty,
-                                        Title = playlistContent.Title,
-                                        Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                        Tracks = [.. tracks.Select(v => v.Id)],
-                                        Sharing = "private",
-                                    }, cancellationToken);
+                                    if (existingScPlaylist.Tracks.Any(v => v.Id == track.Id)) continue;
+                                    changes.Add(new((playlistContent, track), ChangeType.Create));
                                 }
-                            }
-                        }
-                        else
-                        {
-                            foreach (Track track in tracks)
-                            {
-                                if (existingScPlaylist.Tracks.Any(v => v.Id == track.Id)) continue;
-                                changes.Add(new((playlistContent, track), ChangeType.Create));
-                            }
 
-                            foreach (Track track in existingScPlaylist.Tracks)
-                            {
-                                if (tracks.Any(v => v.Id == track.Id)) continue;
-                                changes.Add(new((playlistContent, track), ChangeType.Delete));
-                            }
-
-                            if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks.Select(v => v.Id)))
-                            {
-                                Log.MinorAction($"Playlist {playlistContent.Title} wasn't modified");
-                            }
-                            else
-                            {
-                                Log.MinorAction($"Updating playlist {playlistContent.Title}");
-                                if (!Arguments.DryRun)
+                                foreach (Track track in existingScPlaylist.Tracks)
                                 {
-                                    await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
+                                    if (tracks.Any(v => v.Id == track.Id)) continue;
+                                    changes.Add(new((playlistContent, track), ChangeType.Delete));
+                                }
+
+                                if (existingScPlaylist.Tracks.Select(v => v.Id).SequenceEqual(tracks.Select(v => v.Id)))
+                                {
+                                }
+                                else
+                                {
+                                    Log.MinorAction($"Updating playlist {playlistContent.Title}");
+                                    if (!Arguments.DryRun)
                                     {
-                                        Permalink = existingScPlaylist.Permalink,
-                                        Title = playlistContent.Title,
-                                        Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
-                                        Tracks = [.. tracks.Select(v => v.Id)],
-                                        Sharing = "private",
-                                        ArtworkUrl = existingScPlaylist.ArtworkUrl,
-                                        Genre = existingScPlaylist.Genre ?? string.Empty,
-                                        ReleaseDate = existingScPlaylist.ReleaseDate,
-                                        TagList = existingScPlaylist.TagList ?? string.Empty,
-                                    }, cancellationToken);
+                                        await soundCloudClient.UpdatePlaylist(existingScPlaylist.Id, new()
+                                        {
+                                            //Description = $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})",
+                                            Tracks = [.. tracks.Select(v => v.Id)],
+                                        }, cancellationToken);
+                                    }
                                 }
                             }
                         }
@@ -1242,7 +1250,8 @@ sealed class App(AppArguments arguments)
                         Console.Write(new string(' ', margin - item.Playlist.Title.Length));
                         Console.Write(ProgressBar.Render((double)item.TotalMatches / item.Playlist.Musics.Count, 10, ProgressBar.Barialle));
                         Console.Write(' ');
-                        Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
+                        Console.Write($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
+                        Console.WriteLine();
                     }
                     Log.None($"{totalMatches * 100 / totalSearches}% ({totalMatches}/{totalSearches})");
                 }
@@ -1321,6 +1330,9 @@ sealed class App(AppArguments arguments)
                     Log.MinorAction($"Fetching library");
                     Spotify.Library profileLibrary = await client.FetchLibrary(filters: ["Playlists", "By you"], cancellationToken: cancellationToken);
 
+                    List<(Playlist Playlist, Spotify.IEntity Track)> added = [];
+                    List<(Playlist Playlist, Spotify.Content Track)> removed = [];
+
                     foreach (Playlist playlistContent in library.Playlists)
                     {
                         if (Arguments.SpotifyIgnore.Contains(playlistContent.YouTubePlaylist.Id)
@@ -1384,47 +1396,32 @@ sealed class App(AppArguments arguments)
 
                         if (existingSpotifyPlaylistUri is null) continue;
 
-                        List<(Playlist Playlist, Spotify.IEntity Track)> added = [];
-                        List<(Playlist Playlist, Spotify.Content Track)> removed = [];
+                        List<(Playlist Playlist, Spotify.IEntity Track)> _added = [];
+                        List<(Playlist Playlist, Spotify.Content Track)> _removed = [];
 
                         foreach (Spotify.IEntity track in tracks)
                         {
                             if (spotifyPlaylistContent.Any(v => v.ItemV2.ThrowIfNull().Data.Uri == track.Uri)) continue;
+                            _added.Add((playlistContent, track));
                             added.Add((playlistContent, track));
                         }
 
                         foreach (Spotify.Content track in spotifyPlaylistContent)
                         {
                             if (tracks.Any(v => v.Uri == track.ItemV2.ThrowIfNull().Data.Uri)) continue;
+                            _removed.Add((playlistContent, track));
                             removed.Add((playlistContent, track));
                         }
 
-                        if (added.Count > 0 || removed.Count > 0)
+                        if (_added.Count > 0 || _removed.Count > 0)
                         {
                             Log.MinorAction($"Updating playlist {playlistContent.Title}");
                             if (!Arguments.DryRun)
                             {
-                                if (added.Count > 0) await client.AddToPlaylist(existingSpotifyPlaylistUri, added.Select(v => v.Track.Uri), cancellationToken);
-                                if (removed.Count > 0) await client.RemoveFromPlaylist(existingSpotifyPlaylistUri, removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
+                                if (_added.Count > 0) await client.AddToPlaylist(existingSpotifyPlaylistUri, _added.Select(v => v.Track.Uri), cancellationToken);
+                                if (_removed.Count > 0) await client.RemoveFromPlaylist(existingSpotifyPlaylistUri, _removed.Select(v => v.Track.Uid ?? throw new NullReferenceException()), cancellationToken);
                                 await client.SetPlaylistDescription(existingSpotifyPlaylistUri.Split(':')[^1], $"{tracks.Count * 100 / playlistContent.Musics.Count}% ({tracks.Count}/{playlistContent.Musics.Count})", cancellationToken);
                             }
-
-                            List<Change<(Playlist Playlist, string Track)>> changes = [
-                                .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track}".TrimStart()), ChangeType.Create)),
-                                .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
-                            ];
-
-                            Console.WriteLine();
-
-                            YtPlaylist.Changes.Print(changes, v =>
-                            {
-                                Console.Write('[');
-                                Console.Write(v.Playlist.Title);
-                                Console.Write(']');
-                                Console.Write(' ');
-                                Console.Write(v.Track);
-                                Console.WriteLine();
-                            });
                         }
                     }
 
@@ -1441,6 +1438,26 @@ sealed class App(AppArguments arguments)
                         Log.None($"{item.TotalMatches * 100 / item.Playlist.Musics.Count,3}% ({item.TotalMatches}/{item.Playlist.Musics.Count})");
                     }
                     Log.None($"{totalMatches * 100 / totalSearches}% ({totalMatches}/{totalSearches})");
+
+                    if (added.Count > 0 || removed.Count > 0)
+                    {
+                        List<Change<(Playlist Playlist, string Track)>> changes = [
+                            .. added.Select(v => new Change<(Playlist, string)>((v.Playlist, $"{v.Track}".TrimStart()), ChangeType.Create)),
+                                .. removed.Select(v => new Change<(Playlist, string)>((v.Playlist, $"<{v.Track.ItemV2.ThrowIfNull().Data.Uri}>"), ChangeType.Delete)),
+                            ];
+
+                        Console.WriteLine();
+
+                        YtPlaylist.Changes.Print(changes, v =>
+                        {
+                            Console.Write('[');
+                            Console.Write(v.Playlist.Title);
+                            Console.Write(']');
+                            Console.Write(' ');
+                            Console.Write(v.Track);
+                            Console.WriteLine();
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {

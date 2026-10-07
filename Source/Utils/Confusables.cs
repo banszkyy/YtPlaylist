@@ -114,7 +114,7 @@ static class Confusables
         {
             foreach (int k in item.Key.ToUtf32())
             {
-                res.Add(k, item.Value);
+                res[k] = item.Value;
             }
         }
 
@@ -127,7 +127,7 @@ static class Confusables
 
         foreach (KeyValuePair<int, string?> item in a)
         {
-            res.Add(item.Key, item.Value);
+            res[item.Key] = item.Value;
         }
 
         foreach (KeyValuePair<int, string?> item in b)
@@ -191,6 +191,6 @@ static class Confusables
         { "ŵ", "w" },
         { "ŹŻŽΖ", "Z" },
         { "źżž", "z" },
-        { string.Join(null, Enumerable.Range(0x0300, 0x005F).Select(v => (char)v)), null }
+        { string.Join(null, Enumerable.Range(0x0300, 0x036F).Select(v => (char)v)), null }
     });
 }

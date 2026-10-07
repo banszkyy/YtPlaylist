@@ -1,22 +1,27 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using Quickenshtein;
 
 namespace YtPlaylist;
 
-public class MetaStringEqualityComparer(ImmutableDictionary<int, string?> map, StringComparison comparisonType) : IEqualityComparer<string>
+public class MetaStringEqualityComparer(ImmutableDictionary<int, string?> map, StringComparison comparisonType, int maxDistance) : IEqualityComparer<string>
 {
-    public bool Equals(string? x, string? y) => MetaGuesser.Same(x, y, map, comparisonType);
+    public bool Equals(string? x, string? y) => MetaGuesser.Same(x, y, map, comparisonType, maxDistance);
     public int GetHashCode([DisallowNull] string obj) => Confusables.Replace(obj, map).GetHashCode(comparisonType);
 }
 
 public static partial class MetaGuesser
 {
-    public static bool Same(string? a, string? b, ImmutableDictionary<int, string?> map, StringComparison comparisonType)
+    public static bool Same(string? a, string? b, ImmutableDictionary<int, string?> map, StringComparison comparisonType, int maxDistance = 0)
     {
         if (string.Equals(a, b, comparisonType)) return true;
         a = Confusables.Replace(a, map);
         b = Confusables.Replace(b, map);
-        return string.Equals(a, b, comparisonType);
+        if (string.Equals(a, b, comparisonType)) return true;
+        if (maxDistance == 0) return false;
+        if (maxDistance < 0) maxDistance = (int)Math.Ceiling((float)Math.Min(a?.Length ?? 0, b?.Length ?? 0) / (float)-maxDistance);
+        int distance = Levenshtein.GetDistance(a, b, CalculationOptions.Default);
+        return distance <= maxDistance;
     }
 
     public static string[] Split(string text, string separator, StringSplitOptions options = default)

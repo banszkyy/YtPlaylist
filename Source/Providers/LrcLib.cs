@@ -81,7 +81,7 @@ sealed class LrcLib : IDisposable
         if ((int)status is not (>= 200 and <= 299))
         {
             throw new HttpRequestException(
-                $"Response status code does not indicate success: {(int)status}",
+                null,
                 null,
                 status
             );

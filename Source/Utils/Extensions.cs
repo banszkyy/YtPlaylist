@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Hqub.MusicBrainz;
 using Hqub.MusicBrainz.Entities;
 
@@ -127,4 +128,8 @@ static class Extensions
             list.Add(warning);
         }
     }
+
+    static readonly JsonSerializerOptions _jsonSerializerOptions = new(JsonSerializerDefaults.General) { WriteIndented = false };
+    static readonly JsonSerializerOptions _jsonSerializerOptionsIndented = new(JsonSerializerDefaults.General) { WriteIndented = true };
+    public static string ToJSON<T>(this T value, bool indented = true) => JsonSerializer.Serialize(value, indented ? _jsonSerializerOptionsIndented : _jsonSerializerOptions);
 }

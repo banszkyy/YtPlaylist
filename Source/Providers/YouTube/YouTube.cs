@@ -7,7 +7,7 @@ namespace YtPlaylist;
 
 static class YouTube
 {
-    public static async Task FetchMetadata(MusicFile musicFile, YoutubeClient youtube, YouTubeCache? youtubeCache, CancellationToken cancellationToken = default)
+    public static async Task FetchMetadata(MusicFile musicFile, YoutubeClient youtube, YouTubeCache? youtubeCache, HarLogger? har, CancellationToken cancellationToken = default)
     {
         if (musicFile.PlaylistVideo is null) return;
 
@@ -130,7 +130,7 @@ static class YouTube
         if (file.Tag.Pictures.Length == 0)
         {
             Uri url = new(musicFile.PlaylistVideo.Thumbnails.OrderByDescending(v => v.Resolution.Area).First().Url, UriKind.Absolute);
-            bool ok = await TagUtils.DownloadCoverImage(file, url, "YouTube", TagLib.PictureType.FrontCover, diff, cancellationToken);
+            bool ok = await TagUtils.DownloadCoverImage(file, url, "YouTube", TagLib.PictureType.FrontCover, diff, har, cancellationToken);
             if (!ok)
             {
                 metaWarnings?.Add($"Couldn't download cover art (check {url} )");

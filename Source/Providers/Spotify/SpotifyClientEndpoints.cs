@@ -175,7 +175,7 @@ partial class SpotifyClient
                 },
             ],
         });
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
     }
 
@@ -225,7 +225,7 @@ partial class SpotifyClient
                 },
             ],
         });
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
         return body.Deserialize<CreatePlaylistResponse>() ?? throw new JsonException();
@@ -272,7 +272,7 @@ partial class SpotifyClient
                 },
             ],
         });
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
     }
 
@@ -314,7 +314,7 @@ partial class SpotifyClient
                 },
             ],
         });
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
     }
 
@@ -355,7 +355,7 @@ partial class SpotifyClient
                 },
             ],
         });
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
     }
 
@@ -459,7 +459,8 @@ partial class SpotifyClient
 
             if (offset + 50 >= v.Data.Playlist.Content.ThrowIfNull().TotalCount) break;
 
-            offset = v.Data.Playlist.Content.PagingInfo.ThrowIfNull().NextOffset.ThrowIfNull();
+            PagingInfo paging = v.Data.Playlist.Content.PagingInfo.ThrowIfNull();
+            offset = (paging.NextOffset ?? (paging.Offset + v.Data.Playlist.Content.Items.Count)).ThrowIfNull();
         }
     }
 

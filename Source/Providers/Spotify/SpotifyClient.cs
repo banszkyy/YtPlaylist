@@ -1,8 +1,13 @@
+using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Mime;
+using System.Net.WebSockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Web;
 using AngleSharp;
@@ -15,58 +20,47 @@ namespace YtPlaylist.Spotify;
 
 sealed partial class SpotifyClient : IDisposable
 {
-    readonly HttpClient client;
-    readonly IRequestCache? cache;
-    DateTimeOffset lastRequestTime;
-    const int CooldownMilliseconds = 1500;
-    ExchangeDeviceCodeResponse? token;
+    readonly MeowHttpClient client;
+    string? accessToken;
+    string? refreshToken;
     DateTimeOffset tokenExpiresAt;
-    readonly Dictionary<string, string> cookies = [];
-    GrantedClientToken? clientToken;
+    string? clientToken;
     DateTimeOffset clientTokenExpiresAt;
     DateTimeOffset clientTokenRefreshAt;
     readonly AppArguments arguments;
-    readonly string clientId;
-    readonly string appVersion;
+    string? clientId;
+    string? appVersion;
+    readonly string deviceId;
     readonly string deviceFlowUserAgent;
     readonly string userAgent;
+    ClientWebSocket? ws;
 
-    public SpotifyClient(SpotifyCredentials credentials, ImmutableArray<NetscapeCookieFile.Cookie> cookies, AppArguments arguments, IRequestCache? cache)
+    public SpotifyClient(SpotifyCredentials credentials, ImmutableArray<NetscapeCookieFile.Cookie> cookies, AppArguments arguments, IRequestCache? cache, HarLogger? har)
     {
         this.userAgent = credentials.UserAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
         this.arguments = arguments;
-        this.cache = cache;
-        clientId = "65b708073fc0480ea92a077233ca87bd";
-        appVersion = "1.2.96.301.g6a125c73";
+        appVersion = "1.2.87.27.ga2033a72";
         deviceFlowUserAgent = "Spotify/128700414 Win32_x86_64/Windows 10 (10.0.26100; x64)";
 
-        clientToken = credentials.ClientToken is null ? null : new GrantedClientToken()
-        {
-            Token = credentials.ClientToken,
-            Domains = [],
-            ExpiresAfterSeconds = 1000000,
-            RefreshAfterSeconds = 1000000,
-        };
+        deviceId = cookies.FirstOrDefault(v => v.Name == "sp_t").Value ?? throw new SpotifyException($"Cookie \"sp_t\" doesn't exists");
 
-        client = new(new HttpClientHandler()
+        client = HttpClientFactory.CreateMeow("Spotify", cache, har, c =>
         {
-            AllowAutoRedirect = false,
-        })
+            //c.BaseAddress = new Uri("https://api-partner.spotify.com");
+            c.DefaultRequestVersion = new Version(2, 0);
+            c.DefaultRequestHeaders.Clear();
+        }, c =>
         {
-            BaseAddress = new Uri("https://api-partner.spotify.com"),
-            DefaultRequestVersion = new Version(2, 0),
-        };
-        client.DefaultRequestHeaders.Clear();
-
-        foreach (NetscapeCookieFile.Cookie cookie in cookies)
-        {
-            if (!cookie.Domain.EndsWith("spotify.com")) continue;
-            this.cookies.Add(cookie.Name, cookie.Value);
-        }
+            CookieContainer cookieContainer = new();
+            foreach (NetscapeCookieFile.Cookie cookie in cookies) cookie.AddTo(cookieContainer);
+            c.CookieContainer = cookieContainer;
+            c.UseCookies = true;
+        });
     }
 
     void PrepareXHRRequest(HttpRequestMessage request)
     {
+        request.Version = new Version(2, 0);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
         request.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("en-US"));
         request.Headers.Add("Origin", "https://open.spotify.com");
@@ -77,63 +71,14 @@ sealed partial class SpotifyClient : IDisposable
         request.Headers.Add("app-platform", "WebPlayer");
         request.Headers.Add("spotify-app-version", appVersion);
         request.Headers.Add("user-agent", userAgent);
-        if (clientToken is not null) request.Headers.Add("client-token", clientToken.Token);
-        if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+        if (clientToken is not null) request.Headers.Add("client-token", clientToken);
+        if (accessToken is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Referrer = new Uri("https://open.spotify.com/", UriKind.Absolute);
-        request.Headers.Add("Cookie", string.Join("; ", cookies.Where(v => v.Key == "sp_key").Select(v => $"{v.Key}={v.Value}")));
     }
 
     async Task<HttpResponseMessage> SendRequest(HttpRequestMessage request, bool cached, Dictionary<string, string>? additionalCacheKey = null, CancellationToken cancellationToken = default)
     {
-        Debug.Assert(request.RequestUri is not null);
-
-        string cacheKey = additionalCacheKey is null ? request.RequestUri.ToString() : $"{request.RequestUri}{(string.IsNullOrEmpty(request.RequestUri.Query) ? "?" : "&") + string.Join('&', additionalCacheKey.OrderBy(v => v.Key).Select(v => $"{HttpUtility.UrlEncode(v.Key)}={HttpUtility.UrlEncode(v.Value)}"))}";
-
-        if (cached && cache is not null && cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
-        {
-            return new HttpResponseMessage(status)
-            {
-                RequestMessage = request,
-                Content = new StreamContent(stream!),
-            };
-        }
-
-        if (lastRequestTime != default)
-        {
-            double ellapsedMilliseconds = (DateTimeOffset.UtcNow - lastRequestTime).TotalMilliseconds;
-            if (ellapsedMilliseconds < CooldownMilliseconds)
-            {
-                await Task.Delay(CooldownMilliseconds - (int)Math.Max(0, ellapsedMilliseconds), cancellationToken);
-            }
-        }
-
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-
-        if (cache is not null)
-        {
-            Stream content = await res.Content.ReadAsStreamAsync(cancellationToken);
-            cache.Add(cacheKey, content, res.StatusCode);
-
-            HttpResponseMessage res2 = new(res.StatusCode)
-            {
-                ReasonPhrase = res.ReasonPhrase,
-                Version = res.Version,
-                RequestMessage = res.RequestMessage,
-                Content = new StreamContent(content),
-            };
-            foreach (KeyValuePair<string, IEnumerable<string>> item in res.Headers)
-            {
-                res2.Headers.Add(item.Key, item.Value);
-            }
-            foreach (KeyValuePair<string, IEnumerable<string>> item in res.TrailingHeaders)
-            {
-                res2.TrailingHeaders.Add(item.Key, item.Value);
-            }
-            return res2;
-        }
-
-        return res;
+        return await client.SendAsync(request, CacheUtils.GetKey(request.RequestUri!, additionalCacheKey), cached, cancellationToken);
     }
 
     async Task<JsonElement> PathfinderRequest(PathfinderRequest request, bool cached, Dictionary<string, string>? additionalCacheKey = null, CancellationToken cancellationToken = default)
@@ -144,13 +89,14 @@ sealed partial class SpotifyClient : IDisposable
         _request.Version = new Version(2, 0);
         _request.Headers.Clear();
         PrepareXHRRequest(_request);
-        _request.Content = JsonContent.Create(request);
+        _request.Content = JsonContent.Create(request, new MediaTypeHeaderValue(MediaTypeNames.Application.Json, null));
 
         additionalCacheKey ??= [];
         additionalCacheKey.Add("_", request.OperationName);
 
-        HttpResponseMessage res = await SendRequest(_request, cached, additionalCacheKey, cancellationToken);
-        JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken: cancellationToken);
+        using HttpResponseMessage res = await SendRequest(_request, cached, additionalCacheKey, cancellationToken);
+        string text = await res.Content.ReadAsStringAsync(cancellationToken);
+        JsonElement body = JsonElement.Parse(text);
         if (res.StatusCode == HttpStatusCode.BadRequest)
         {
             if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("errors", out JsonElement errorsE))
@@ -175,42 +121,29 @@ sealed partial class SpotifyClient : IDisposable
         return body.Deserialize<T>() ?? throw new JsonException();
     }
 
-    void HandleResponse(HttpResponseMessage response)
-    {
-        if (response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies))
-        {
-            foreach (string setCookie in setCookies)
-            {
-                string[] v = setCookie.Split(';', StringSplitOptions.TrimEntries);
-                cookies[v[0].Split('=')[0]] = v[0].Split('=')[1];
-            }
-        }
-    }
-
     async Task<ExchangeDeviceCodeResponse> GetToken(CancellationToken cancellationToken = default)
     {
-        if (token is not null)
+        if (clientId is null) throw new InvalidOperationException($"{nameof(clientId)} is not set");
+
+        if (refreshToken is not null)
         {
             Log.MinorAction($"Refreshing token");
 
             using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"https://accounts.spotify.com/api/token", UriKind.Absolute));
             request.Version = new Version(2, 0);
             request.Headers.Clear();
-            request.Headers.Add("Cookie", string.Join("; ", cookies.Select(v => $"{v.Key}={v.Value}")));
             request.Headers.Add("User-Agent", deviceFlowUserAgent);
 
             request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 { "grant_type", "refresh_token" },
                 { "client_id", clientId },
-                { "refresh_token", token.RefreshToken },
+                { "refresh_token", refreshToken },
             });
 
-            HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-            HandleResponse(res);
+            HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
             JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
             res.EnsureSuccessStatusCode();
-            lastRequestTime = DateTimeOffset.UtcNow;
 
             return body.Deserialize<ExchangeDeviceCodeResponse>() ?? throw new JsonException();
         }
@@ -232,10 +165,12 @@ sealed partial class SpotifyClient : IDisposable
     async Task<DeviceAuthorizationResponse> InitiateDeviceAuthorization(CancellationToken cancellationToken = default)
     {
         Log.Debug($"Initiating device authorization");
+
+        if (clientId is null) throw new InvalidOperationException($"{nameof(clientId)} is not set");
+
         using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"https://accounts.spotify.com/oauth2/device/authorize", UriKind.Absolute));
         request.Version = new Version(2, 0);
         request.Headers.Clear();
-        request.Headers.Add("Cookie", string.Join("; ", cookies.Select(v => $"{v.Key}={v.Value}")));
         request.Headers.Add("User-Agent", deviceFlowUserAgent);
 
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -244,9 +179,7 @@ sealed partial class SpotifyClient : IDisposable
             { "scope",  "app-remote-control,playlist-modify,playlist-modify-private,playlist-modify-public,playlist-read,playlist-read-collaborative,playlist-read-private,streaming,transfer-auth-session,ugc-image-upload,user-follow-modify,user-follow-read,user-library-modify,user-library-read,user-modify,user-modify-playback-state,user-modify-private,user-personalized,user-read-birthdate,user-read-currently-playing,user-read-email,user-read-play-history,user-read-playback-position,user-read-playback-state,user-read-private,user-read-recently-played,user-top-read" },
         });
 
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-        HandleResponse(res);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
 
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
@@ -285,11 +218,8 @@ sealed partial class SpotifyClient : IDisposable
             request.Headers.Add("Sec-Fetch-Site", "none");
             request.Headers.Add("Sec-Fetch-User", "?1");
             request.Headers.Add("Sec-GPC", "1");
-            request.Headers.Add("Cookie", string.Join("; ", cookies.Select(v => $"{v.Key}={v.Value}")));
 
-            res = await client.SendAsync(request, cancellationToken);
-            lastRequestTime = DateTimeOffset.UtcNow;
-            HandleResponse(res);
+            res = await client.SendAsync(request, cancellationToken: cancellationToken);
 
             if (res.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.MovedPermanently or HttpStatusCode.TemporaryRedirect)
             {
@@ -344,17 +274,14 @@ sealed partial class SpotifyClient : IDisposable
         request.Headers.Add("X-CSRF-Token", csrf_token);
         request.Headers.Add("Referer", referer_url);
         request.Headers.Add("Origin", "https://accounts.spotify.com");
-        request.Headers.Add("Cookie", string.Join("; ", cookies.Select(v => $"{v.Key}={v.Value}")));
         request.Headers.Add("User-Agent", deviceFlowUserAgent);
 
         request.Content = JsonContent.Create(new
         {
             code = user_code
-        });
+        }, new MediaTypeHeaderValue(MediaTypeNames.Application.Json, null));
 
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-        HandleResponse(res);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         JsonElement body;
         if (res.Content.Headers.ContentType?.MediaType == MediaTypeNames.Application.Json)
         {
@@ -369,10 +296,11 @@ sealed partial class SpotifyClient : IDisposable
     {
         Log.Debug($"Exchanging device code");
 
+        if (clientId is null) throw new InvalidOperationException($"{nameof(clientId)} is not set");
+
         using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"https://accounts.spotify.com/api/token", UriKind.Absolute));
         request.Version = new Version(2, 0);
         request.Headers.Clear();
-        request.Headers.Add("Cookie", string.Join("; ", cookies.Select(v => $"{v.Key}={v.Value}")));
         request.Headers.Add("User-Agent", deviceFlowUserAgent);
 
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -382,38 +310,164 @@ sealed partial class SpotifyClient : IDisposable
             { "device_code", device_code },
         });
 
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-        HandleResponse(res);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
         res.EnsureSuccessStatusCode();
 
         return body.Deserialize<ExchangeDeviceCodeResponse>() ?? throw new JsonException();
     }
 
-    async Task<ClientTokenResponse> FetchClientToken(string deviceId, CancellationToken cancellationToken = default)
+    async Task FetchPage(CancellationToken cancellationToken)
     {
-        Log.MinorAction($"Fetching client token");
+        Log.MinorAction($"Fetching page");
 
-        using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"https://clienttoken.spotify.com/v1/clienttoken", UriKind.Absolute));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"https://open.spotify.com/", UriKind.Absolute));
         request.Version = new Version(2, 0);
         request.Headers.Clear();
         request.Headers.Add("User-Agent", userAgent);
         request.Headers.Add("Referer", "https://open.spotify.com/");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Text.Html));
         request.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("en-US"));
         request.Headers.Add("Sec-GPC", "1");
-        request.Headers.Add("Sec-Fetch-Dest", "empty");
-        request.Headers.Add("Sec-Fetch-Mode", "cors");
-        request.Headers.Add("Sec-Fetch-Site", "same-site");
-        request.Headers.Add("Priority", "u=4");
+        request.Headers.Add("Sec-Fetch-Dest", "document");
+        request.Headers.Add("Sec-Fetch-Mode", "navigate");
+        request.Headers.Add("Sec-Fetch-Site", "none");
+        request.Headers.Add("Sec-Fetch-User", "?1");
+        request.Headers.Add("Priority", "u=0, i");
+
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
+        res.EnsureSuccessStatusCode();
+        string html = await res.Content.ReadAsStringAsync(cancellationToken);
+
+        using IBrowsingContext context = BrowsingContext.New(Configuration.Default);
+        using IDocument document = await context.OpenAsync(req => req.Content(html), cancel: cancellationToken);
+
+        IElement appServerConfigE = document.QuerySelector("#appServerConfig") ?? throw new UnreachableException($"Element not found");
+        AppServerConfig appServerConfig = JsonSerializer.Deserialize<AppServerConfig>(Base64.DecodeFromChars(appServerConfigE.TextContent)) ?? throw new JsonException();
+
+        appVersion = appServerConfig.ClientVersion;
+    }
+
+    async Task<long> FetchServerTime(CancellationToken cancellationToken)
+    {
+        Log.MinorAction($"Fetching server time");
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"https://open.spotify.com/api/server-time", UriKind.Absolute));
+        request.Version = new Version(2, 0);
+        request.Headers.Clear();
+        request.Headers.Add("User-Agent", userAgent);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        request.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("en-US"));
+
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
+        res.EnsureSuccessStatusCode();
+
+        JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken: cancellationToken);
+
+        return (body.Deserialize<ServerTimeResponse>() ?? throw new JsonException()).ServerTime;
+    }
+    const int TotpPeriod = 30;
+    const int TotpDigits = 6;
+    const string ToptVersion = "61";
+    readonly byte[] ToptSecret = [51, 55, 54, 49, 51, 54, 51, 56, 55, 53, 51, 56, 52, 53, 57, 56, 57, 51, 56, 56, 51, 51, 49, 50, 51, 49, 48, 57, 49, 49, 57, 57, 50, 56, 52, 55, 49, 49, 50, 52, 52, 56, 56, 57, 52, 52, 49, 48, 50, 49, 48, 53, 49, 49, 50, 57, 55, 49, 48, 56];
+
+    string GenerateTotp(long timestamp)
+    {
+        if (ToptSecret is null) throw new InvalidOperationException($"{nameof(ToptSecret)} is not set");
+
+        long counter = timestamp / TotpPeriod;
+
+        Span<byte> counterBytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(counterBytes, counter);
+
+        Span<byte> hmacResult = stackalloc byte[20];
+        HMACSHA1.HashData(ToptSecret, counterBytes, hmacResult);
+
+        int offset = hmacResult[^1] & 0x0F;
+        int binary = ((hmacResult[offset] & 0x7F) << 24) |
+                     ((hmacResult[offset + 1] & 0xFF) << 16) |
+                     ((hmacResult[offset + 2] & 0xFF) << 8) |
+                     (hmacResult[offset + 3] & 0xFF);
+
+        int otp = binary % (int)Math.Pow(10, TotpDigits);
+        return otp.ToString($"D{TotpDigits}");
+    }
+
+    async Task<SessionTokenResponse> FetchSessionToken(CancellationToken cancellationToken)
+    {
+        long serverTime = await FetchServerTime(cancellationToken);
+
+        string generatedTotp = GenerateTotp(serverTime);
+
+        Log.MinorAction($"Fetching token");
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"https://open.spotify.com/api/token?reason=init&productType=web-player&totp={generatedTotp}&totpServer={generatedTotp}&totpVer={ToptVersion}", UriKind.Absolute));
+        PrepareXHRRequest(request);
+        request.Version = new Version(2, 0);
+        request.Headers.Clear();
+        request.Headers.Add("User-Agent", userAgent);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        request.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("en-US"));
+
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
+        string body = await res.Content.ReadAsStringAsync(cancellationToken);
+        res.EnsureSuccessStatusCode();
+
+        return JsonSerializer.Deserialize<SessionTokenResponse>(body) ?? throw new JsonException();
+    }
+
+    async Task InitWs(CancellationToken cancellationToken = default)
+    {
+        Log.MinorAction($"Initializing websocket");
+
+        if (accessToken is null) throw new InvalidOperationException($"{nameof(accessToken)} is not set");
+
+        ws = new ClientWebSocket();
+        ws.Options.SetRequestHeader("User-Agent", userAgent);
+        await ws.ConnectAsync(new Uri($"wss://gew1-dealer.g2.spotify.com/?access_token={accessToken}"), cancellationToken);
+
+        await ws.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "ping" })), WebSocketMessageType.Text, false, cancellationToken);
+
+        _ = Task.Run(async () =>
+        {
+            byte[] buffer = new byte[1024];
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                WebSocketReceiveResult res = await ws.ReceiveAsync(buffer, cancellationToken);
+                if (res.MessageType == WebSocketMessageType.Text)
+                {
+                    string msg = Encoding.UTF8.GetString(buffer.AsSpan(0, res.Count));
+                    Log.Debug(msg);
+                }
+                else
+                {
+                    ReadOnlySpan<byte> msg = buffer.AsSpan(0, res.Count);
+                    Log.Debug(Base64.EncodeToString(msg));
+                }
+            }
+        }, cancellationToken);
+    }
+
+    async Task<ClientTokenResponse> FetchClientToken(string deviceId, CancellationToken cancellationToken = default)
+    {
+        Log.MinorAction($"Fetching client token");
+
+        if (clientId is null) throw new InvalidOperationException($"{nameof(clientId)} is not set");
+        if (appVersion is null) throw new InvalidOperationException($"{nameof(appVersion)} is not set");
+
+        using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"https://clienttoken.spotify.com/v1/clienttoken", UriKind.Absolute));
+        request.Version = new Version(3, 0);
+        request.Headers.Clear();
+        request.Headers.Add("User-Agent", userAgent);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        request.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("en-US"));
 
         request.Content = JsonContent.Create(new
         {
             client_data = new
             {
-                client_id = clientId,
-                client_version = appVersion,
+                client_version = "1.3.6.151.g40f63da325b7",
+                client_id = "d8a5ed958d274c2e8ee717e6a4b0971d",
                 js_sdk_data = new
                 {
                     device_brand = "unknown",
@@ -424,11 +478,9 @@ sealed partial class SpotifyClient : IDisposable
                     os_version = "unknown",
                 },
             },
-        });
+        }, new MediaTypeHeaderValue(MediaTypeNames.Application.Json, null));
 
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-        HandleResponse(res);
+        HttpResponseMessage res = await client.SendAsync(request, cancellationToken: cancellationToken);
         res.EnsureSuccessStatusCode();
         JsonElement body = await res.Content.ReadAsJsonAsync(cancellationToken);
 
@@ -438,20 +490,22 @@ sealed partial class SpotifyClient : IDisposable
     async Task AuthorizeIfRequired(CancellationToken cancellationToken = default)
     {
         string spotifyTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-token.json");
-        string spotifyClientTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-client-token.json");
 
-        if (token is null || tokenExpiresAt <= DateTimeOffset.UtcNow)
-        {
-            token = await GetToken(cancellationToken);
-            tokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(token.ExpiresIn);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(spotifyTokenFile)!);
-            File.WriteAllText(spotifyTokenFile, JsonSerializer.Serialize(new SavedSpotifyToken()
-            {
-                Token = token,
-                ExpiresAt = tokenExpiresAt,
-            }));
-        }
+        //if (accessToken is null || tokenExpiresAt <= DateTimeOffset.UtcNow)
+        //{
+        //    ExchangeDeviceCodeResponse token = await GetToken(cancellationToken);
+        //    tokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(token.ExpiresIn);
+        //
+        //    Directory.CreateDirectory(Path.GetDirectoryName(spotifyTokenFile)!);
+        //    File.WriteAllText(spotifyTokenFile, JsonSerializer.Serialize(new SavedClientToken()
+        //    {
+        //        Token = token,
+        //        ExpiresAt = tokenExpiresAt,
+        //    }));
+        //
+        //    accessToken = token.AccessToken;
+        //    refreshToken = token.RefreshToken;
+        //}
 
         //if (clientToken is null || clientTokenRefreshAt <= DateTimeOffset.UtcNow || clientTokenExpiresAt <= DateTimeOffset.UtcNow)
         //{
@@ -478,25 +532,60 @@ sealed partial class SpotifyClient : IDisposable
     public async Task Initialize(CancellationToken cancellationToken = default)
     {
         string spotifyTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-token.json");
-        string spotifyClientTokenFile = Path.Combine(arguments.HttpCachePath, "spotify-client-token.json");
 
-        if (File.Exists(spotifyTokenFile))
-        {
-            SavedSpotifyToken v = JsonSerializer.Deserialize<SavedSpotifyToken>(File.ReadAllText(spotifyTokenFile)) ?? throw new JsonException(); ;
-            token = v.Token;
-            tokenExpiresAt = v.ExpiresAt;
-        }
+        //if (File.Exists(spotifyTokenFile))
+        //{
+        //    try
+        //    {
+        //        SavedClientToken r = JsonSerializer.Deserialize<SavedClientToken>(File.ReadAllText(spotifyTokenFile)) ?? throw new JsonException();
 
-        if (File.Exists(spotifyClientTokenFile))
+        //        DateTimeOffset now = DateTimeOffset.UtcNow;
+        //        if (r.SessionTokenExpiresAt < now && r.ClientTokenExpiresAt < now)
+        //        {
+        //            accessToken = r.SessionToken;
+        //            tokenExpiresAt = r.SessionTokenExpiresAt;
+        //            clientId = r.ClientId;
+        //            clientToken = r.ClientToken;
+        //            clientTokenExpiresAt = r.ClientTokenExpiresAt;
+        //            clientTokenRefreshAt = r.ClientTokenRefreshAt;
+        //        }
+        //        return;
+        //    }
+        //    catch (JsonException) { }
+        //}
+
         {
-            SavedClientToken v = JsonSerializer.Deserialize<SavedClientToken>(File.ReadAllText(spotifyClientTokenFile)) ?? throw new JsonException(); ;
-            clientToken = v.Token;
-            clientTokenExpiresAt = v.ExpiresAt;
-            clientTokenRefreshAt = v.RefreshAt;
+            await FetchPage(cancellationToken);
+
+            SessionTokenResponse sessionToken = await FetchSessionToken(cancellationToken);
+            accessToken = sessionToken.AccessToken;
+            tokenExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(sessionToken.AccessTokenExpirationTimestampMs);
+            clientId = sessionToken.ClientId;
+
+            GrantedClientToken _clientToken = (await FetchClientToken(deviceId, cancellationToken)).GrantedToken;
+            clientToken = _clientToken.Token;
+            clientTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(_clientToken.ExpiresAfterSeconds);
+            clientTokenRefreshAt = DateTimeOffset.UtcNow.AddSeconds(_clientToken.RefreshAfterSeconds);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(spotifyTokenFile)!);
+            File.WriteAllText(spotifyTokenFile, JsonSerializer.Serialize(new SavedClientToken()
+            {
+                SessionToken = accessToken,
+                ClientId = clientId,
+                SessionTokenExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(sessionToken.AccessTokenExpirationTimestampMs),
+                ClientToken = clientToken,
+                ClientTokenExpiresAt = clientTokenExpiresAt,
+                ClientTokenRefreshAt = clientTokenRefreshAt,
+            }));
         }
 
         await AuthorizeIfRequired(cancellationToken);
     }
 
-    public void Dispose() => client.Dispose();
+    public void Dispose()
+    {
+        client.Dispose();
+        ws?.CloseAsync(WebSocketCloseStatus.NormalClosure, "meow", default).Wait();
+        ws?.Dispose();
+    }
 }

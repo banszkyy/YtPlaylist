@@ -9,7 +9,7 @@ static class Confusables
 {
     static ImmutableDictionary<int, string?>? _confusables;
 
-    public static async Task<ImmutableDictionary<int, string?>> Fetch(AppArguments arguments)
+    public static async Task<ImmutableDictionary<int, string?>> Fetch(AppArguments arguments, HarLogger? har)
     {
         if (_confusables is not null) return _confusables;
 
@@ -22,7 +22,7 @@ static class Confusables
         }
         else
         {
-            HttpClient httpClient = new();
+            using HttpClient httpClient = HttpClientFactory.Create("Unicode", har);
             text = await httpClient.GetStringAsync("https://www.unicode.org/Public/security/latest/confusables.txt");
             File.WriteAllText(localPath, text);
         }
@@ -83,7 +83,7 @@ static class Confusables
 
     static List<int> ToUtf32(this string value)
     {
-        List<int> codePoints = new(value.Length);
+        List<int> codePoints = [with(value.Length)];
 
         for (int i = 0; i < value.Length; i++)
         {
@@ -123,7 +123,7 @@ static class Confusables
 
     public static ImmutableDictionary<int, string?> CombineMaps(IReadOnlyDictionary<int, string?> a, IReadOnlyDictionary<int, string?> b)
     {
-        Dictionary<int, string?> res = new(a.Count + b.Count);
+        Dictionary<int, string?> res = [with(a.Count + b.Count)];
 
         foreach (KeyValuePair<int, string?> item in a)
         {

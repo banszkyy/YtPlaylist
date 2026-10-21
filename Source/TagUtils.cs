@@ -4,15 +4,16 @@ namespace YtPlaylist;
 
 static class TagUtils
 {
-    public static async Task<bool> DownloadCoverImage(TagLib.File file, Uri url, string description, TagLib.PictureType type, Diff diff, CancellationToken cancellationToken)
+    public static async Task<bool> DownloadCoverImage(TagLib.File file, Uri url, string description, TagLib.PictureType type, Diff diff, HarLogger? har, CancellationToken cancellationToken)
     {
         byte[]? imageBytes = null;
         string? mimeType = null;
-        using (HttpClient client = new())
+
+        using (HttpClient client = HttpClientFactory.Create("CoverImage", har))
         {
             try
             {
-                using (HttpResponseMessage res = await client.GetAsync(url, cancellationToken))
+                using (HttpResponseMessage res = await client.GetAsync(url, cancellationToken: cancellationToken))
                 {
                     if (!res.IsSuccessStatusCode) return false;
                     imageBytes = await res.Content.ReadAsByteArrayAsync(cancellationToken);

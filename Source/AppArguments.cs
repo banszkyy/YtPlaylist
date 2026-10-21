@@ -1,22 +1,27 @@
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using CsToml;
+using CsToml.Values;
 using Logger;
 
 namespace YtPlaylist;
 
-sealed class AppArguments
+sealed partial class AppArguments
 {
     public ImmutableArray<string> PlaylistIds { get; private set; } = [];
     public bool UseCache { get; private set; }
     [NotNull] public string? HttpCachePath { get; private set; }
     [NotNull] public TimeSpan? HttpCacheLifetime { get; private set; }
     public string? YouTubeCredentialsPath { get; private set; }
-    public string? SoundCloudCredentialsPath { get; private set; }
-    public string? SpotifyCredentialsPath { get; private set; }
+    public SoundCloud.SoundCloudCredentials? SoundCloudCredentials { get; private set; }
+    public Spotify.SpotifyCredentials? SpotifyCredentials { get; private set; }
     public string? SoundCloudDebugPath { get; private set; }
+    public string? SoundCloudCookiesPath { get; private set; }
     public string? SpotifyDebugPath { get; private set; }
-    public ImmutableArray<string> CookiesPaths { get; private set; } = [];
+    public string? SpotifyCookiesPath { get; private set; }
     public bool DryRun { get; private set; }
     public bool Download { get; private set; } = true;
     public bool Metadata { get; private set; } = true;
@@ -34,6 +39,7 @@ sealed class AppArguments
     public bool IgnoreSoundCloudMatchWarnings { get; private set; }
     public bool IgnoreSpotifyMatchWarnings { get; private set; }
     public string? FixFile { get; private set; }
+    public string? Har { get; private set; }
     public bool SaveIntermediateTags { get; private set; }
     public ImmutableArray<string> SoundCloudIgnore { get; private set; } = [];
     public ImmutableArray<string> SpotifyIgnore { get; private set; } = [];
@@ -43,8 +49,6 @@ sealed class AppArguments
     {
         AppArguments v = new();
         bool success = true;
-        Regex playlistIdRegex = new(@"^[a-zA-Z0-9-_]+$");
-        Regex playlistRegex = new(@"youtube\.com.*list=([a-zA-Z0-9-_]+)");
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -154,39 +158,62 @@ sealed class AppArguments
                     v.YouTubeCredentialsPath = args[++i];
                     break;
                 case "--soundcloud-credentials":
-                    if (v.SoundCloudCredentialsPath is not null)
                     {
-                        Log.Error($"SoundCloud credentials path already defined");
-                        success = false;
-                        continue;
-                    }
+                        if (v.SoundCloudCredentials is not null)
+                        {
+                            Log.Error($"SoundCloud credentials path already defined");
+                            success = false;
+                            continue;
+                        }
 
-                    if (i + 1 == args.Length)
-                    {
-                        Log.Error($"Expected a path name after the argument {args[i]}");
-                        success = false;
-                        continue;
-                    }
+                        if (i + 1 == args.Length)
+                        {
+                            Log.Error($"Expected a path name after the argument {args[i]}");
+                            success = false;
+                            continue;
+                        }
 
-                    v.SoundCloudCredentialsPath = args[++i];
-                    break;
+                        string x = args[++i];
+
+                        if (!File.Exists(x))
+                        {
+                            Log.Error($"File \"{x}\" doesn't exists");
+                            success = false;
+                            continue;
+                        }
+
+                        v.SoundCloudCredentials = JsonSerializer.Deserialize<SoundCloud.SoundCloudCredentials>(File.ReadAllText(x)) ?? throw new JsonException();
+                        break;
+                    }
                 case "--spotify-credentials":
-                    if (v.SpotifyCredentialsPath is not null)
                     {
-                        Log.Error($"Spotify credentials path already defined");
-                        success = false;
-                        continue;
-                    }
+                        if (v.SpotifyCredentials is not null)
+                        {
+                            Log.Error($"Spotify credentials path already defined");
+                            success = false;
+                            continue;
+                        }
 
-                    if (i + 1 == args.Length)
-                    {
-                        Log.Error($"Expected a path name after the argument {args[i]}");
-                        success = false;
-                        continue;
-                    }
+                        if (i + 1 == args.Length)
+                        {
+                            Log.Error($"Expected a path name after the argument {args[i]}");
+                            success = false;
+                            continue;
+                        }
 
-                    v.SpotifyCredentialsPath = args[++i];
-                    break;
+
+                        string x = args[++i];
+
+                        if (!File.Exists(x))
+                        {
+                            Log.Error($"File \"{x}\" doesn't exists");
+                            success = false;
+                            continue;
+                        }
+
+                        v.SpotifyCredentials = JsonSerializer.Deserialize<Spotify.SpotifyCredentials>(File.ReadAllText(x)) ?? throw new JsonException();
+                        break;
+                    }
                 case "--soundcloud-debug":
                     if (v.SoundCloudDebugPath is not null)
                     {
@@ -221,7 +248,7 @@ sealed class AppArguments
 
                     v.SpotifyDebugPath = args[++i];
                     break;
-                case "--cookies":
+                case "--soundcloud-cookies":
                     if (i + 1 == args.Length)
                     {
                         Log.Error($"Expected a path name after the argument {args[i]}");
@@ -229,7 +256,17 @@ sealed class AppArguments
                         continue;
                     }
 
-                    v.CookiesPaths = v.CookiesPaths.Add(args[++i]);
+                    v.SpotifyCookiesPath = args[++i];
+                    break;
+                case "--spotify-cookies":
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.SoundCloudCookiesPath = args[++i];
                     break;
                 case "--cache-lifetime":
                     if (v.HttpCacheLifetime.HasValue)
@@ -248,45 +285,10 @@ sealed class AppArguments
 
                     string y = args[++i];
 
-                    TimeSpan cacheLifetime;
-
-                    if (y == "i")
+                    if (!ParseTimeSpan(y, out TimeSpan cacheLifetime))
                     {
-                        cacheLifetime = TimeSpan.MaxValue;
-                    }
-                    else if (y == "0")
-                    {
-                        cacheLifetime = TimeSpan.Zero;
-                    }
-                    else
-                    {
-                        cacheLifetime = TimeSpan.Zero;
-                        foreach (string item in y.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            if (item.Length <= 1)
-                            {
-                                Log.Error($"Invalid time segment \"{item}\"");
-                                continue;
-                            }
-
-                            if (!long.TryParse(item[..^1], out long x))
-                            {
-                                Log.Error($"Invalid time segment number \"{item[..^1]}\"");
-                                continue;
-                            }
-
-                            switch (item[^1])
-                            {
-                                case 's': cacheLifetime = cacheLifetime.Add(TimeSpan.FromSeconds(x)); break;
-                                case 'm': cacheLifetime = cacheLifetime.Add(TimeSpan.FromMinutes(x)); break;
-                                case 'h': cacheLifetime = cacheLifetime.Add(TimeSpan.FromHours(x)); break;
-                                case 'd': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x)); break;
-                                case 'w': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 7)); break;
-                                case 'M': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 30)); break;
-                                case 'y': cacheLifetime = cacheLifetime.Add(TimeSpan.FromDays(x * 365)); break;
-                                default: Log.Error($"Invalid time segment suffix \"{item[^1]}\""); break;
-                            }
-                        }
+                        success = false;
+                        continue;
                     }
                     v.HttpCacheLifetime = cacheLifetime;
                     break;
@@ -394,6 +396,50 @@ sealed class AppArguments
                     if (v.ExportPLS) Log.Warning($"Argument \"{args[i]}\" already passed");
                     v.ExportPLS = true;
                     break;
+                case "--har":
+                    if (v.Har is not null)
+                    {
+                        Log.Error($"HAR path already defined");
+                        success = false;
+                        continue;
+                    }
+
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a path name after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.Har = args[++i];
+                    break;
+                case "-c" or "--config":
+                    if (i + 1 == args.Length)
+                    {
+                        Log.Error($"Expected a filename after the argument {args[i]}");
+                        success = false;
+                        continue;
+                    }
+
+                    {
+                        string c = args[++i];
+                        if (!File.Exists(c))
+                        {
+                            Log.Error($"File \"{c}\" doesn't exists");
+                            success = false;
+                            continue;
+                        }
+
+                        using FileStream f = new(c, FileMode.Open, FileAccess.Read);
+                        TomlDocument doc = CsTomlSerializer.Deserialize<TomlDocument>(f);
+                        if (!ReadConfig(doc, v))
+                        {
+                            Log.Error($"Failed to read config \"{c}\"");
+                            success = false;
+                            continue;
+                        }
+                        break;
+                    }
                 default:
                     Log.Error($"Unexpected argument {args[i]}");
                     success = false;
@@ -423,4 +469,362 @@ sealed class AppArguments
 
         return (v, success);
     }
+
+    static bool ParseTimeSpan(string value, out TimeSpan timeSpan)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            timeSpan = TimeSpan.Zero;
+            return false;
+        }
+
+        if (value == "i")
+        {
+            timeSpan = TimeSpan.MaxValue;
+            return true;
+        }
+
+        if (value == "0")
+        {
+            timeSpan = TimeSpan.Zero;
+            return true;
+        }
+
+        timeSpan = TimeSpan.Zero;
+        foreach (string item in value.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (item.Length <= 1)
+            {
+                Log.Error($"Invalid time segment \"{item}\"");
+                return false;
+            }
+
+            if (!long.TryParse(item[..^1], out long x))
+            {
+                Log.Error($"Invalid time segment number \"{item[..^1]}\"");
+                return false;
+            }
+
+            switch (item[^1])
+            {
+                case 's': timeSpan = timeSpan.Add(TimeSpan.FromSeconds(x)); break;
+                case 'm': timeSpan = timeSpan.Add(TimeSpan.FromMinutes(x)); break;
+                case 'h': timeSpan = timeSpan.Add(TimeSpan.FromHours(x)); break;
+                case 'd': timeSpan = timeSpan.Add(TimeSpan.FromDays(x)); break;
+                case 'w': timeSpan = timeSpan.Add(TimeSpan.FromDays(x * 7)); break;
+                case 'M': timeSpan = timeSpan.Add(TimeSpan.FromDays(x * 30)); break;
+                case 'y': timeSpan = timeSpan.Add(TimeSpan.FromDays(x * 365)); break;
+                default: Log.Error($"Invalid time segment suffix \"{item[^1]}\""); return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool ReadConfig(TomlDocument doc, AppArguments v)
+    {
+        bool success = true;
+
+        if (doc.RootNode["playlists"].TryGetArray(out ReadOnlyCollection<TomlValue>? playlist))
+        {
+            foreach (TomlValue item in playlist)
+            {
+                if (!item.TryGetString(out string w))
+                {
+                    Log.Error($"Invalid playlist item {item}");
+                    success = false;
+                    continue;
+                }
+
+                Match match = playlistRegex.Match(w);
+                if (match.Success)
+                {
+                    w = match.Groups[1].Value;
+                }
+                else if (!playlistIdRegex.IsMatch(w))
+                {
+                    Log.Warning($"Playlist \"{w}\" might be invalid");
+                }
+
+                v.PlaylistIds = v.PlaylistIds.Add(w);
+            }
+        }
+
+        if (doc.RootNode["output"].TryGetString(out string output))
+        {
+            v.OutputPath = output;
+        }
+
+        if (doc.RootNode["dry"].TryGetBool(out bool dryRun))
+        {
+            v.DryRun = dryRun;
+        }
+
+        if (doc.RootNode["check-duplicates"].TryGetBool(out bool checkDuplicates))
+        {
+            v.CheckDuplicates = checkDuplicates;
+        }
+
+        if (doc.RootNode["lyrics"].TryGetBool(out bool lyrics))
+        {
+            v.Lyrics = lyrics;
+        }
+
+        if (doc.RootNode["download"].TryGetBool(out bool download))
+        {
+            v.Download = download;
+        }
+
+        if (doc.RootNode["metadata"].TryGetBool(out bool metadata))
+        {
+            v.Metadata = metadata;
+        }
+
+        if (doc.RootNode["reset-meta"].TryGetBool(out bool resetMetadata))
+        {
+            v.RecreateMetadata = resetMetadata;
+        }
+
+        if (doc.RootNode["check-redundancy"].TryGetBool(out bool checkRedundancy))
+        {
+            v.CheckRedundancy = checkRedundancy;
+        }
+
+        if (doc.RootNode["save-intermediate-tags"].TryGetBool(out bool saveIntermediateTags))
+        {
+            v.SaveIntermediateTags = saveIntermediateTags;
+        }
+
+        if (doc.RootNode["fixfile"].TryGetString(out string? fixfile))
+        {
+            if (File.Exists(fixfile))
+            {
+                v.FixFile = fixfile;
+            }
+            else
+            {
+                Log.Warning($"File \"{fixfile}\" doesn't exists");
+                v.FixFile = null;
+            }
+        }
+
+        if (doc.RootNode["sync-ignore"].TryGetArray(out ReadOnlyCollection<TomlValue>? syncIgnore))
+        {
+            foreach (TomlValue item in syncIgnore)
+            {
+                if (!item.TryGetString(out string w))
+                {
+                    Log.Error($"Invalid sync ignore item {item}");
+                    success = false;
+                    continue;
+                }
+
+                v.SpotifyIgnore = v.SpotifyIgnore.Add(w);
+                v.SoundCloudIgnore = v.SoundCloudIgnore.Add(w);
+            }
+        }
+
+        if (doc.RootNode["log"].HasValue)
+        {
+            if (doc.RootNode["log"]["ignore-meta-warnings"].TryGetBool(out bool ignoreMetaWarnings))
+            {
+                v.IgnoreMetaWarnings = ignoreMetaWarnings;
+            }
+
+            if (doc.RootNode["log"]["har"].TryGetString(out string? har))
+            {
+                v.Har = har;
+            }
+        }
+
+        if (doc.RootNode["cache"].HasValue)
+        {
+            if (doc.RootNode["cache"]["force"].TryGetBool(out bool force))
+            {
+                v.UseCache = force;
+            }
+
+            if (doc.RootNode["cache"]["path"].TryGetString(out string? path))
+            {
+                v.HttpCachePath = path;
+            }
+
+            if (doc.RootNode["cache"]["lifetime"].TryGetString(out string? lifetime))
+            {
+                if (!ParseTimeSpan(lifetime, out TimeSpan lifetimeV))
+                {
+                    success = false;
+                }
+                else
+                {
+                    v.HttpCacheLifetime = lifetimeV;
+                }
+            }
+        }
+
+        if (doc.RootNode["soundcloud"].HasValue)
+        {
+            if (doc.RootNode["soundcloud"]["sync"].TryGetBool(out bool sync))
+            {
+                v.SyncSoundCloudPlaylists = sync;
+            }
+
+            if (doc.RootNode["soundcloud"]["ignore-match-warnings"].TryGetBool(out bool ignoreMatchWarnings))
+            {
+                v.IgnoreSoundCloudMatchWarnings = ignoreMatchWarnings;
+            }
+
+            if (doc.RootNode["soundcloud"]["cookies"].TryGetString(out string? cookies))
+            {
+                if (!File.Exists(cookies))
+                {
+                    Log.Error($"File \"{cookies}\" doesn't exists");
+                    success = false;
+                }
+
+                v.SoundCloudCookiesPath = cookies;
+            }
+
+            if (doc.RootNode["soundcloud"]["debug"].TryGetString(out string? debug))
+            {
+                v.SoundCloudDebugPath = debug;
+            }
+
+            if (doc.RootNode["soundcloud"]["credentials"].TryGetString(out string? credentials))
+            {
+                if (!File.Exists(credentials))
+                {
+                    Log.Warning($"File \"{credentials}\" doesn't exists");
+                    success = false;
+                }
+                else
+                {
+                    v.SoundCloudCredentials = JsonSerializer.Deserialize<SoundCloud.SoundCloudCredentials>(File.ReadAllText(credentials)) ?? throw new JsonException();
+                }
+            }
+            else if (doc.RootNode["soundcloud"]["credentials"].HasValue)
+            {
+                if (doc.RootNode["soundcloud"]["credentials"]["user-agent"].TryGetString(out string? userAgent)
+                    && doc.RootNode["soundcloud"]["credentials"]["user-agent"].TryGetString(out string? jslp)
+                    && doc.RootNode["soundcloud"]["credentials"]["user-agent"].TryGetString(out string? sessionId)
+                    && doc.RootNode["soundcloud"]["credentials"]["user-agent"].TryGetString(out string? token))
+                {
+                    v.SoundCloudCredentials = new()
+                    {
+                        UserAgent = userAgent,
+                        Jspl = jslp,
+                        SessionId = sessionId,
+                        Token = token,
+                    };
+                }
+            }
+        }
+
+        if (doc.RootNode["spotify"].HasValue)
+        {
+            if (doc.RootNode["spotify"]["sync"].TryGetBool(out bool sync))
+            {
+                v.SyncSpotifyPlaylists = sync;
+            }
+
+            if (doc.RootNode["spotify"]["ignore-match-warnings"].TryGetBool(out bool ignoreMatchWarnings))
+            {
+                v.IgnoreSpotifyMatchWarnings = ignoreMatchWarnings;
+            }
+
+            if (doc.RootNode["spotify"]["cookies"].TryGetString(out string? cookies))
+            {
+                if (!File.Exists(cookies))
+                {
+                    Log.Error($"File \"{cookies}\" doesn't exists");
+                    success = false;
+                }
+
+                v.SpotifyCookiesPath = cookies;
+            }
+
+            if (doc.RootNode["spotify"]["debug"].TryGetString(out string? debug))
+            {
+                v.SpotifyDebugPath = debug;
+            }
+
+            if (doc.RootNode["spotify"]["credentials"].TryGetString(out string? credentials))
+            {
+                if (!File.Exists(credentials))
+                {
+                    Log.Warning($"File \"{credentials}\" doesn't exists");
+                    success = false;
+                }
+                else
+                {
+                    v.SpotifyCredentials = JsonSerializer.Deserialize<Spotify.SpotifyCredentials>(File.ReadAllText(credentials)) ?? throw new JsonException();
+                }
+            }
+            else if (doc.RootNode["spotify"]["credentials"].HasValue)
+            {
+                if (doc.RootNode["spotify"]["credentials"]["user-agent"].TryGetString(out string? userAgent))
+                {
+                    v.SpotifyCredentials = new()
+                    {
+                        UserAgent = userAgent,
+                    };
+                }
+            }
+        }
+
+        if (doc.RootNode["youtube"].HasValue)
+        {
+            if (doc.RootNode["youtube"]["credentials"].TryGetString(out string? credentials))
+            {
+                v.YouTubeCredentialsPath = credentials;
+            }
+        }
+
+        if (doc.RootNode["audacious"].HasValue)
+        {
+            if (doc.RootNode["audacious"]["regenerate-playlists"].TryGetBool(out bool regeneratePlaylists))
+            {
+                v.RegenerateAudicousPlaylists = regeneratePlaylists;
+            }
+        }
+
+        if (doc.RootNode["export"].HasValue)
+        {
+            if (doc.RootNode["export"]["m3u"].TryGetBool(out bool m3u))
+            {
+                v.ExportM3U = m3u;
+            }
+
+            if (doc.RootNode["export"]["pls"].TryGetBool(out bool pls))
+            {
+                v.ExportPLS = pls;
+            }
+        }
+
+        if (doc.RootNode["ytdlp"].HasValue)
+        {
+            if (doc.RootNode["ytdlp"]["args"].TryGetArray(out ReadOnlyCollection<TomlValue>? args))
+            {
+                foreach (TomlValue item in args)
+                {
+                    if (!item.TryGetString(out string w))
+                    {
+                        Log.Error($"Invalid ytdlp args item {item}");
+                        success = false;
+                        continue;
+                    }
+
+                    v.YtDlpAdditionalArguments = v.YtDlpAdditionalArguments.Add(w);
+                }
+            }
+        }
+
+        return success;
+    }
+
+    [GeneratedRegex(@"^[a-zA-Z0-9-_]+$")]
+    static partial Regex playlistIdRegex { get; }
+
+    [GeneratedRegex(@"youtube\.com.*list=([a-zA-Z0-9-_]+)")]
+    static partial Regex playlistRegex { get; }
 }

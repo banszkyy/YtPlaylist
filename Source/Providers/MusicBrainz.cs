@@ -58,7 +58,7 @@ static class MusicBrainz
         return v;
     }
 
-    public static async Task FetchMetadata(MusicFile musicFile, MusicBrainzClient musicBrainz, List<string>? issues, CancellationToken cancellationToken)
+    public static async Task FetchMetadata(MusicFile musicFile, MusicBrainzClient musicBrainz, List<string>? issues, HarLogger? har, CancellationToken cancellationToken)
     {
         Recording? recording = null;
 
@@ -184,7 +184,7 @@ static class MusicBrainz
             if (tagsFile.Tag.Pictures.Length == 0 || tagsFile.Tag.Pictures[0].Description != "MusicBrainz")
             {
                 Uri url = new($"https://coverartarchive.org/release/{release.Id}/front-250.jpg", UriKind.Absolute);
-                bool ok = await TagUtils.DownloadCoverImage(tagsFile, url, "MusicBrainz", TagLib.PictureType.FrontCover, tagsDiff, cancellationToken);
+                bool ok = await TagUtils.DownloadCoverImage(tagsFile, url, "MusicBrainz", TagLib.PictureType.FrontCover, tagsDiff, har, cancellationToken);
                 if (!ok)
                 {
                     issues?.Add($"Couldn't download cover art (check {url} )");

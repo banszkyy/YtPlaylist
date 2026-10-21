@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text;
@@ -17,10 +16,7 @@ namespace YtPlaylist.SoundCloud;
 
 sealed partial class SoundCloudClient : IDisposable
 {
-    readonly HttpClient client;
-    readonly IRequestCache? cache;
-    DateTimeOffset lastRequestTime;
-    const int CooldownMilliseconds = 500;
+    readonly MeowHttpClient client;
 
     readonly string? token;
     readonly string? sessionId;
@@ -34,7 +30,7 @@ sealed partial class SoundCloudClient : IDisposable
 
     readonly Dictionary<string, string> additionalCookies = [];
 
-    public SoundCloudClient(SoundCloudCredentials credentials, ImmutableArray<NetscapeCookieFile.Cookie> cookies, IRequestCache? cache)
+    public SoundCloudClient(SoundCloudCredentials credentials, ImmutableArray<NetscapeCookieFile.Cookie> cookies, IRequestCache? cache, HarLogger? har)
     {
         token = credentials.Token;
         jspl = credentials.Jspl;
@@ -46,25 +42,25 @@ sealed partial class SoundCloudClient : IDisposable
             switch (cookie.Name)
             {
                 case "datadome":
-                    this.datadomeClientId = HttpUtility.UrlDecode(cookie.Value);
+                    datadomeClientId = HttpUtility.UrlDecode(cookie.Value);
                     break;
                 case "oauth_token":
-                    this.token = HttpUtility.UrlDecode(cookie.Value);
+                    token = HttpUtility.UrlDecode(cookie.Value);
                     break;
                 case "sc_session":
                     {
                         JsonDocument v = JsonDocument.Parse(HttpUtility.UrlDecode(cookie.Value));
-                        this.sessionId = v.RootElement.GetProperty("id").GetStringOrNull();
+                        sessionId = v.RootElement.GetProperty("id").GetStringOrNull();
                         break;
                     }
                 case "sc_tracking_user_id":
                     {
-                        this.trackingUserId = long.Parse(JsonElement.Parse(HttpUtility.UrlDecode(cookie.Value)).GetString()!.Split(':')[2]);
+                        trackingUserId = long.Parse(JsonElement.Parse(HttpUtility.UrlDecode(cookie.Value)).GetString()!.Split(':')[2]);
                         break;
                     }
                 case "sc_tracking_anonymous_id":
                     {
-                        this.trackingAnonymousId = JsonElement.Parse(HttpUtility.UrlDecode(cookie.Value)).GetString()!;
+                        trackingAnonymousId = JsonElement.Parse(HttpUtility.UrlDecode(cookie.Value)).GetString()!;
                         break;
                     }
             }
@@ -72,32 +68,28 @@ sealed partial class SoundCloudClient : IDisposable
             additionalCookies[cookie.Name] = cookie.Value;
         }
 
-        this.cache = cache;
-        client = new()
+        client = HttpClientFactory.CreateMeow("SoundCloud", cache, har, c =>
         {
-            BaseAddress = new Uri("https://api-v2.soundcloud.com")
-        };
-        client.DefaultRequestHeaders.Clear();
-        client.DefaultRequestHeaders.Add("User-Agent", credentials.UserAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3");
-        //client.DefaultRequestHeaders.Add("Host", "api-v2.soundcloud.com");
-        //client.DefaultRequestHeaders.Add("Origin", "https://soundcloud.com");
-        //client.DefaultRequestHeaders.Add("Referer", "https://soundcloud.com/");
+            c.BaseAddress = new Uri("https://api-v2.soundcloud.com");
+            c.DefaultRequestHeaders.Clear();
+            c.DefaultRequestHeaders.Add("User-Agent", credentials.UserAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3");
+            //c.DefaultRequestHeaders.Add("Host", "api-v2.soundcloud.com");
+            //c.DefaultRequestHeaders.Add("Origin", "https://soundcloud.com");
+            //c.DefaultRequestHeaders.Add("Referer", "https://soundcloud.com/");
+        });
     }
 
     async Task<HttpResponseMessage> SendRequest(HttpRequestMessage request, bool cached, CancellationToken cancellationToken = default)
     {
-        string cacheKey;
-        if (request.RequestUri!.IsAbsoluteUri)
+        string? cacheKey = null;
+        if (!request.RequestUri!.IsAbsoluteUri)
         {
-            cacheKey = request.RequestUri!.ToString();
-        }
-        else
-        {
-            Uri absoluteUri = new(client.BaseAddress!, request.RequestUri!);
+            Uri absoluteUri = new(client.Client.BaseAddress!, request.RequestUri!);
             StringBuilder cacheKeyBuilder = new();
 
             cacheKeyBuilder.Append(absoluteUri.LocalPath);
             List<string> queries = [];
+
             foreach (string item in absoluteUri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 if (item.IndexOf('=') != -1)
@@ -110,6 +102,7 @@ sealed partial class SoundCloudClient : IDisposable
                     queries.Add(item);
                 }
             }
+
             if (queries.Count > 0)
             {
                 cacheKeyBuilder.Append('?');
@@ -119,51 +112,7 @@ sealed partial class SoundCloudClient : IDisposable
             cacheKey = cacheKeyBuilder.ToString();
         }
 
-        if (cached && cache is not null && cache.TryGetCachedItem(cacheKey, out Stream? stream, out HttpStatusCode status))
-        {
-            return new HttpResponseMessage(status)
-            {
-                RequestMessage = request,
-                Content = new StreamContent(stream!),
-            };
-        }
-
-        if (lastRequestTime != default)
-        {
-            double ellapsedMilliseconds = (DateTimeOffset.UtcNow - lastRequestTime).TotalMilliseconds;
-            if (ellapsedMilliseconds < CooldownMilliseconds)
-            {
-                await Task.Delay(CooldownMilliseconds - (int)Math.Max(0, ellapsedMilliseconds), cancellationToken);
-            }
-        }
-
-        HttpResponseMessage res = await client.SendAsync(request, cancellationToken);
-        lastRequestTime = DateTimeOffset.UtcNow;
-
-        if (cache is not null)
-        {
-            Stream content = await res.Content.ReadAsStreamAsync(cancellationToken);
-            cache.Add(cacheKey, content, res.StatusCode);
-
-            HttpResponseMessage res2 = new(res.StatusCode)
-            {
-                ReasonPhrase = res.ReasonPhrase,
-                Version = res.Version,
-                RequestMessage = res.RequestMessage,
-                Content = new StreamContent(content),
-            };
-            foreach (KeyValuePair<string, IEnumerable<string>> item in res.Headers)
-            {
-                res2.Headers.Add(item.Key, item.Value);
-            }
-            foreach (KeyValuePair<string, IEnumerable<string>> item in res.TrailingHeaders)
-            {
-                res2.TrailingHeaders.Add(item.Key, item.Value);
-            }
-            return res2;
-        }
-
-        return res;
+        return await client.SendAsync(request, cacheKey, cached, cancellationToken);
     }
 
     string GetCookies()

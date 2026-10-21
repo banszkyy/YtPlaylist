@@ -4,3 +4,6 @@
 /out
 
 *.sln
+*.log
+*-credentials.json
+*cookies.txt

@@ -1,0 +1,211 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Config Schema for YtSync",
+    "type": "object",
+    "properties": {
+        "playlists": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "pattern": "^(.*youtube\\.com.*list=)?([a-zA-Z0-9-_]{13,}).*$"
+            },
+            "minItems": 1,
+            "description": "List of YouTube playlist id-s or full url-s"
+        },
+        "output": {
+            "type": "string",
+            "title": "Output directory path",
+            "description": "Existing output directory where to sync the playlists, where one directory will be created for each playlist"
+        },
+        "dry": {
+            "type": "boolean",
+            "default": false,
+            "title": "Dry run",
+            "description": "If set to true, it won't modify any files nor your playlist contents"
+        },
+        "check-duplicates": {
+            "type": "boolean",
+            "default": false,
+            "title": "Check for duplicated music",
+            "description": "If set to true, it'll check for possibly duplicated music files and optionally deletes them"
+        },
+        "reset-meta": {
+            "type": "boolean",
+            "default": false,
+            "title": "Reset metadata",
+            "description": "If set to true, it'll reset all the metadata and will start from fresh"
+        },
+        "check-redundancy": {
+            "type": "boolean",
+            "default": false
+        },
+        "save-intermediate-tags": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, it'll save the MP3 meta tags after they got modified, otherwise it'll only save them when the program finishes"
+        },
+        "lyrics": {
+            "type": "boolean",
+            "default": true,
+            "title": "Download lyrics",
+            "description": "If set to true, it'll download the lyrics from lrclib"
+        },
+        "download": {
+            "type": "boolean",
+            "default": true,
+            "title": "Download music",
+            "description": "If set to false, it won't download any new music"
+        },
+        "metadata": {
+            "type": "boolean",
+            "default": true,
+            "title": "Fetch metadata",
+            "description": "If set to true, it'll download metadata from MusicBrainz"
+        },
+        "fixfile": {
+            "type": "string",
+            "title": "Fix-file path",
+            "description": "meow"
+        },
+        "sync-ignore": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "title": "Playlist sync blacklist",
+            "description": "The listed playlists won't be synced to external services"
+        },
+        "log": {
+            "type": "object",
+            "properties": {
+                "ignore-meta-warnings": {
+                    "type": "boolean",
+                    "default": false,
+                    "title": "Ignore metadata warnings",
+                    "description": "If set to true, it won't print warnings related to metadata parsing/validating"
+                },
+                "har": {
+                    "type": "string",
+                    "examples": ["./log.har"],
+                    "title": "HAR log output filename",
+                    "description": "Logs all (non-cached) requests to HAR"
+                }
+            }
+        },
+        "cache": {
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean",
+                    "default": false,
+                    "title": "Force use cache",
+                    "description": "If set to true, it won't fetch YouTube playlists for any updates"
+                },
+                "lifetime": {
+                    "type": "string",
+                    "pattern": "^(i|0|(\\d+[s|m|h|d|w|M|y])( \\d+[s|m|h|d|w|M|y])*)$",
+                    "default": "i",
+                    "examples": [
+                        "i",
+                        "0",
+                        "2h",
+                        "5h 10m",
+                        "1w 5d"
+                    ],
+                    "title": "Cache max lifetime",
+                    "description": "The max lifetime a cache considered to be valid"
+                },
+                "path": {
+                    "type": "string",
+                    "default": "./cache",
+                    "title": "Cache directory path"
+                }
+            }
+        },
+        "soundcloud": {
+            "type": "object",
+            "properties": {
+                "sync": {
+                    "type": "boolean"
+                },
+                "ignore-match-warnings": {
+                    "type": "boolean"
+                },
+                "cookies": {
+                    "type": "string"
+                },
+                "debug": {
+                    "type": "string"
+                },
+                "credentials": {
+                    "type": ["string", "object"],
+                    "properties": {
+                        
+                    }
+                }
+            }
+        },
+        "spotify": {
+            "type": "object",
+            "properties": {
+                "sync": {
+                    "type": "boolean"
+                },
+                "ignore-match-warnings": {
+                    "type": "boolean"
+                },
+                "cookies": {
+                    "type": "string"
+                },
+                "debug": {
+                    "type": "string"
+                },
+                "credentials": {
+                    "type": ["string", "object"],
+                    "properties": {
+                        
+                    }
+                }
+            }
+        },
+        "audacious": {
+            "type": "object",
+            "properties": {
+                "regenerate-playlists": {
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
+        "export": {
+            "type": "object",
+            "properties": {
+                "m3u": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "pls": {
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
+        "ytdlp": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "title": "Additional ytdlp arguments",
+                    "description": "These arguments will also be passed to the ytdlp process"
+                }
+            }
+        }
+    },
+    "required": [
+        "playlists",
+        "output"
+    ]
+}

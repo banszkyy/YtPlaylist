@@ -11,12 +11,16 @@ namespace YtPlaylist;
 
 static class SpotifyUtils
 {
-    public static async Task<IEntity?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, CancellationToken cancellationToken = default)
+    public static async Task<IEntity?> MatchTrack(MusicFile musicFile, Library library, SpotifyClient client, AppArguments arguments, HarLogger? har, CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrEmpty(musicFile.DescriptionMeta.SpotifyId))
         {
             return await client.GetTrack(musicFile.DescriptionMeta.SpotifyId, cancellationToken);
         }
+
+        if (!string.IsNullOrWhiteSpace(arguments.SpotifyDebugPath)) Directory.CreateDirectory(Path.Combine(arguments.SpotifyDebugPath, musicFile.Playlist.Title));
+
+        using FileWriter? writer = arguments.SpotifyDebugPath is null ? null : new FileWriter(Path.Combine(arguments.SpotifyDebugPath!, musicFile.Playlist.Title, Path.GetFileNameWithoutExtension(musicFile.Path) + ".md"));
 
         MusicMeta searchingMeta = musicFile.Meta;
         if (searchingMeta.Performers.Length == 0)
@@ -25,19 +29,27 @@ static class SpotifyUtils
             searchingMeta = MetaGuesser.Guess(musicFile.TagsFile.Tag);
         }
 
+        writer?.WriteLine();
+        writer?.WriteLine($"# {musicFile.Meta}");
+        writer?.WriteLine();
+        writer?.WriteLine("```json");
+        writer?.WriteLine(musicFile.Meta.ToJSON());
+        writer?.WriteLine("```");
+        writer?.WriteLine();
+
         if (searchingMeta.Performers.Length == 0)
         {
-            Log.Warning($"Music file {musicFile.Meta} has no performers, skipping");
+            writer?.WriteLine($"⚠ Music file has no performers");
             return null;
         }
 
         if (string.IsNullOrWhiteSpace(searchingMeta.Title))
         {
-            Log.Warning($"Music file {musicFile.Meta} has no title, skipping");
+            writer?.WriteLine($"⚠ Music file has no title");
             return null;
         }
 
-        ImmutableDictionary<int, string?> confusablesAccentsMap = Confusables.CombineMaps(await Confusables.Fetch(arguments), Confusables.Accents);
+        ImmutableDictionary<int, string?> confusablesAccentsMap = Confusables.CombineMaps(await Confusables.Fetch(arguments, har), Confusables.Accents);
         ImmutableDictionary<int, string?> equivalentsAccentsMap = Confusables.CombineMaps(Confusables.Equivalents, Confusables.Accents);
         MetaStringEqualityComparer metaStringEqualityComparer = new(confusablesAccentsMap, StringComparison.InvariantCultureIgnoreCase, 0);
 
@@ -49,14 +61,16 @@ static class SpotifyUtils
 
         if (musicFile.Video is not null)
         {
-            Regex soundcloudLinkRegex = new(@"https?:\/\/(\w*\.)?spotify\.com([\w-_\/]+)");
+            Regex spotifyLinkRegex = new(@"https?:\/\/(\w*\.)?spotify\.com([\w-_\/]+)");
 
             foreach (Video? video in library.Musics.Where(v => v.Video is not null && v.Video.Author.ChannelId.Value == musicFile.Video.Author.ChannelId.Value).Select(v => v.Video))
             {
                 if (video is null) continue;
 
-                foreach (Uri link in soundcloudLinkRegex.Matches(video.Description).Select(v => new Uri(v.Value, UriKind.Absolute)))
+                foreach (Uri link in spotifyLinkRegex.Matches(video.Description).Select(v => new Uri(v.Value, UriKind.Absolute)))
                 {
+                    writer?.WriteLine($"Spotify url: {link}");
+
                     ImmutableArray<string> segments = [.. link.Segments.Skip(1).Select(v => v.TrimEnd('/'))];
 
                     for (int i = 0; i < segments.Length; i += 2)
@@ -104,6 +118,7 @@ static class SpotifyUtils
         if (trackPermalinks.Count == 1)
         {
             Track0 W = await client.GetTrack($"spotify:track:{trackPermalinks[0]}", cancellationToken);
+            writer?.WriteLine($"## ✅ CONFIRMED MATCH");
             return new SearchResultItem()
             {
                 AlbumOfTrack = W.AlbumOfTrack,
@@ -140,6 +155,8 @@ static class SpotifyUtils
         query.Append($"{string.Join(' ', searchingMeta.Performers)} ");
         if (!string.IsNullOrWhiteSpace(searchingMeta.Title)) query.Append(searchingMeta.Title);
         if (!string.IsNullOrWhiteSpace(searchingMeta.RemixedBy)) query.Append($" {searchingMeta.RemixedBy} Remix");
+        writer?.WriteLine($"Query: [{query}](https://open.spotify.com/search/{HttpUtility.UrlPathEncode(query.ToString())}/tracks)");
+        writer?.WriteLine();
 
         ImmutableArray<MatchedSearchResultItem> queryRes = await client.SearchTracks(
             query.ToString(),
@@ -149,7 +166,8 @@ static class SpotifyUtils
 
         if (queryRes.Length == 0)
         {
-            if (!arguments.IgnoreSoundCloudMatchWarnings) Log.Warning($"Absolute no track found for query \"{query}\" (check https://open.spotify.com/search/{HttpUtility.UrlPathEncode(query.ToString())}/tracks )");
+            if (!arguments.IgnoreSpotifyMatchWarnings) Log.Warning($"Absolute no track found for query \"{query}\" (check https://open.spotify.com/search/{HttpUtility.UrlPathEncode(query.ToString())}/tracks )");
+            writer?.WriteLine($"## ❌ NO MATCH (nothing)");
             return null;
         }
 
@@ -160,13 +178,13 @@ static class SpotifyUtils
         {
             if (item.Item.Data.Uri == null)
             {
-                Log.Warning($"Track \"{item.Item.Data.Name}\" has no uri, skipping");
+                writer?.WriteLine($"⚠ Track \"{item.Item.Data.Name}\" has no uri, skipping");
                 continue;
             }
 
             if (!item.Item.Data.Uri.StartsWith("spotify:track:"))
             {
-                Log.Warning($"Search result item \"{item.Item.Data.Name}\" is not a track, skipping");
+                writer?.WriteLine($"⚠ Search result item \"{item.Item.Data.Name}\" is not a track, skipping");
                 continue;
             }
 
@@ -322,13 +340,15 @@ static class SpotifyUtils
                 continue;
             }
 
+            writer?.WriteLine($"## ✅ MATCH");
+
             return item.Item.Data;
         }
 
-        if (!arguments.IgnoreSoundCloudMatchWarnings)
-        {
-            Log.Warning($"No track found for query \"{query}\" (check https://open.spotify.com/search/{HttpUtility.UrlPathEncode(query.ToString())}/tracks )");
+        writer?.WriteLine($"## ❌ NO MATCH");
 
+        if (!arguments.IgnoreSpotifyMatchWarnings)
+        {
             if (bestMatchIssues.Length == 0) throw new UnreachableException();
             if (bestMatch is null) throw new UnreachableException();
 

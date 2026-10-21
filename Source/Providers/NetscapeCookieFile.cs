@@ -1,10 +1,31 @@
 using System.Collections.Immutable;
+using System.Net;
 
 namespace YtPlaylist;
 
-sealed class NetscapeCookieFile
+static class NetscapeCookieFile
 {
-    public readonly record struct Cookie(string Domain, bool IncludeSubdomains, string Path, bool Secure, long Expires, string Name, string Value);
+    public readonly record struct Cookie(string Domain, bool IncludeSubdomains, string Path, bool Secure, long Expires, string Name, string Value)
+    {
+        public void AddTo(CookieContainer container)
+        {
+            DateTime expires = DateTime.MinValue;
+
+            if (Expires > 0)
+            {
+                const long MaxUnix = 253402300799;
+                DateTimeOffset dto = DateTimeOffset.FromUnixTimeSeconds(Math.Min(Expires, MaxUnix));
+                if (dto <= DateTimeOffset.UtcNow) return;
+                expires = dto.UtcDateTime;
+            }
+
+            container.Add(new System.Net.Cookie(Name, Value, Path, Domain)
+            {
+                Secure = Secure,
+                Expires = expires,
+            });
+        }
+    }
 
     public static ImmutableArray<Cookie> Parse(string text)
     {

@@ -7,26 +7,13 @@ using HttpCache;
 
 namespace YtPlaylist;
 
-sealed class LrcLib : IDisposable
+sealed class LrcLib(IRequestCache cache, HarLogger? har) : IDisposable
 {
-    readonly HttpClient Client;
-    readonly IRequestCache? Cache;
-    readonly TimeSpan Cooldown;
-    DateTimeOffset LastRequest;
-
-    public LrcLib(IRequestCache cache)
+    readonly MeowHttpClient Client = HttpClientFactory.CreateMeow("LrcLib", cache, har, c =>
     {
-        Client = new HttpClient(new SocketsHttpHandler()
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-        })
-        {
-            DefaultRequestHeaders = { { "User-Agent", App.UserAgent } },
-            BaseAddress = new Uri("https://lrclib.net/"),
-        };
-        Cache = cache;
-        Cooldown = TimeSpan.FromSeconds(1);
-    }
+        c.DefaultRequestHeaders.Add("User-Agent", App.UserAgent);
+        c.BaseAddress = new Uri("https://lrclib.net/");
+    });
 
     public sealed class LyricsResponse
     {
@@ -38,16 +25,6 @@ sealed class LrcLib : IDisposable
         [JsonPropertyName("instrumental")] public required bool Instrumental { get; set; }
         [JsonPropertyName("plainLyrics")] public required string? PlainLyrics { get; set; }
         [JsonPropertyName("syncedLyrics")] public required string? SyncedLyrics { get; set; }
-    }
-
-    async Task Delay(CancellationToken cancellationToken)
-    {
-        TimeSpan timeSinceLastRequest = DateTimeOffset.UtcNow - LastRequest;
-        if (timeSinceLastRequest < Cooldown)
-        {
-            await Task.Delay(Cooldown - timeSinceLastRequest, cancellationToken);
-        }
-        LastRequest = DateTimeOffset.UtcNow;
     }
 
     public async Task<LyricsResponse?> FetchLyrics(string artistName, string trackName, string? albumName, int? duration, CancellationToken cancellationToken = default)
@@ -65,25 +42,17 @@ sealed class LrcLib : IDisposable
             uri = uriBuilder.ToString();
         }
 
-        if (Cache is null || !Cache.TryGetCachedItem(uri, out Stream? stream, out HttpStatusCode status))
-        {
-            await Delay(cancellationToken);
+        using HttpResponseMessage response = await Client.GetAsync(uri, cached: true, cancellationToken: cancellationToken);
+        Stream? stream = await response.Content.ReadAsStreamAsync(cancellationToken);
 
-            HttpResponseMessage response = await Client.GetAsync(uri, cancellationToken);
-            stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            Cache?.Add(uri, stream, response.StatusCode);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
 
-            status = response.StatusCode;
-        }
-
-        if (status == HttpStatusCode.NotFound) return null;
-
-        if ((int)status is not (>= 200 and <= 299))
+        if ((int)response.StatusCode is not (>= 200 and <= 299))
         {
             throw new HttpRequestException(
                 null,
                 null,
-                status
+                response.StatusCode
             );
         }
 

@@ -8,6 +8,11 @@ public interface IEntity
     string Uri { get; }
 }
 
+public interface IMaybeEntity
+{
+    string? Uri { get; }
+}
+
 public class PathfinderRequest
 {
     [J("variables")] public required PathfinderVariables Variables { get; set; }
@@ -386,7 +391,7 @@ public class PagingInfo
     [J("nextOffset")] public long? NextOffset { get; set; }
 }
 
-public class Playlist : IEntity
+public class Playlist : IMaybeEntity
 {
     [J("content")] public Contents? Content { get; set; }
     [J("abuseReportingEnabled")] public bool? AbuseReportingEnabled { get; set; }
@@ -403,7 +408,7 @@ public class Playlist : IEntity
     [J("ownerV2")] public DataWrapper<Owner0>? Owner { get; set; }
     [J("revisionId")] public string? RevisionId { get; set; }
     [J("sharingInfo")] public SharingInfo? SharingInfo { get; set; }
-    [J("uri")] public required string Uri { get; set; }
+    [J("uri")] public string? Uri { get; set; }
     [J("visualIdentity")] public VisualIdentity? VisualIdentity { get; set; }
     [J("watchFeedEntrypoint")] public WatchFeedEntrypoint? WatchFeedEntrypoint { get; set; }
 
@@ -573,7 +578,7 @@ public class MeProfile : IEntity
     [J("uri")] public required string Uri { get; set; }
     [J("username")] public required string Username { get; set; }
 
-    public override string ToString() => $"{Name ?? Username ?? AccountId} <{Uri}>";
+    public override string ToString() => $"{Name ?? Username} <{Uri}>";
 }
 
 public class Library

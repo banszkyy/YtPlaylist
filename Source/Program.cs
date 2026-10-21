@@ -8,6 +8,17 @@ static class Program
 {
     static int Main(string[] args)
     {
+#if DEBUG
+        if (File.Exists("/home/bb/Projects/YtPlaylist/debug-args.jsonc"))
+        {
+            args = JsonSerializer.Deserialize<string[]>(File.ReadAllText("/home/bb/Projects/YtPlaylist/debug-args.jsonc"), new JsonSerializerOptions
+            {
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+            }) ?? [];
+        }
+#endif
+
         if (args.Length == 0 || args.Contains("-h") || args.Contains("--help"))
         {
             Console.WriteLine("YouTube Playlist Downloader");

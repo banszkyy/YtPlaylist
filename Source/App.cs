@@ -11,7 +11,6 @@ using Quickenshtein;
 using System.Net;
 using HttpCache;
 using YtPlaylist.SoundCloud;
-using System.Text.Json;
 using YtPlaylist.FFMPEG.Probe;
 
 namespace YtPlaylist;
@@ -30,6 +29,7 @@ sealed class App(AppArguments arguments)
         TagLib.Id3v2.Tag.DefaultVersion = 3;
         TagLib.Id3v2.Tag.ForceDefaultVersion = true;
 
+        using HarLogger? har = Arguments.Har is null ? null : new(Arguments.Har);
         using Library library = new();
 
         List<YoutubeExplode.Playlists.Playlist> playlists = [];
@@ -37,27 +37,46 @@ sealed class App(AppArguments arguments)
         List<string> unexpectedMusicFiles = [];
         List<PlaylistVideo> online = [];
 
-        ImmutableArray<NetscapeCookieFile.Cookie> cookies = [];
+        ImmutableArray<NetscapeCookieFile.Cookie> soundcloudCookies = [];
+        ImmutableArray<NetscapeCookieFile.Cookie> spotifyCookies = [];
 
         {
-            List<NetscapeCookieFile.Cookie> _cookies = [];
-            foreach (string cookiesPath in Arguments.CookiesPaths)
+            if (!string.IsNullOrEmpty(Arguments.SoundCloudCookiesPath))
             {
-                if (!File.Exists(cookiesPath))
+                List<NetscapeCookieFile.Cookie> _cookies = [];
+                if (!File.Exists(Arguments.SoundCloudCookiesPath))
                 {
-                    Log.Error($"Cookies file \"{cookiesPath}\" doesn't exists");
-                    continue;
+                    Log.Error($"Cookies file \"{Arguments.SoundCloudCookiesPath}\" doesn't exists");
                 }
-                _cookies.AddRange(NetscapeCookieFile.Parse(File.ReadAllText(cookiesPath)));
+                else
+                {
+                    _cookies.AddRange(NetscapeCookieFile.Parse(File.ReadAllText(Arguments.SoundCloudCookiesPath)));
+                }
+                soundcloudCookies = [.. _cookies];
             }
-            cookies = [.. _cookies];
+        }
+
+        {
+            if (!string.IsNullOrEmpty(Arguments.SpotifyCookiesPath))
+            {
+                List<NetscapeCookieFile.Cookie> _cookies = [];
+                if (!File.Exists(Arguments.SpotifyCookiesPath))
+                {
+                    Log.Error($"Cookies file \"{Arguments.SpotifyCookiesPath}\" doesn't exists");
+                }
+                else
+                {
+                    _cookies.AddRange(NetscapeCookieFile.Parse(File.ReadAllText(Arguments.SpotifyCookiesPath)));
+                }
+                spotifyCookies = [.. _cookies];
+            }
         }
 
         YouTubeCache? youTubeCache = new(Path.Combine(Arguments.HttpCachePath, "YouTube"));
 
         Log.Section($"Synchronizing playlists");
 
-        using (YoutubeClient youtube = new())
+        using (YoutubeClient youtube = new(HttpClientFactory.Create("YouTube", har)))
         {
             Log.MajorAction($"Fetching playlists metadata");
 
@@ -175,7 +194,7 @@ sealed class App(AppArguments arguments)
 
                     string outputPath = Path.Combine(Arguments.OutputPath, playlist.Title);
 
-                    await DownloadPlaylist(youtube, playlist, youTubeCache, online, library, outputPath, progressBar, cancellationToken);
+                    await DownloadPlaylist(youtube, playlist, youTubeCache, online, library, outputPath, progressBar, har, cancellationToken);
                 }
             }
         }
@@ -402,14 +421,11 @@ sealed class App(AppArguments arguments)
         {
             Log.Section($"Fetching metadata");
 
-            using MusicBrainzClient musicBrainz = new(new HttpClient(new SocketsHttpHandler()
-            {
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            })
-            {
-                DefaultRequestHeaders = { { "User-Agent", UserAgent } },
-                BaseAddress = new Uri("https://musicbrainz.org/ws/2/"),
-            })
+            HttpClient httpClient = HttpClientFactory.Create("MusicBrainz", har);
+            httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+            httpClient.BaseAddress = new Uri("https://musicbrainz.org/ws/2/");
+
+            using MusicBrainzClient musicBrainz = new(httpClient)
             {
                 Cache = string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "MusicBrainz"))
                 {
@@ -437,7 +453,7 @@ sealed class App(AppArguments arguments)
                         {
                             List<string>? issues = Arguments.IgnoreMetaWarnings ? null : [];
 
-                            await MusicBrainz.FetchMetadata(musicFile, musicBrainz, issues, cancellationToken);
+                            await MusicBrainz.FetchMetadata(musicFile, musicBrainz, issues, har, cancellationToken);
 
                             if (issues is not null && issues.Count > 0)
                             {
@@ -659,7 +675,7 @@ sealed class App(AppArguments arguments)
             using LrcLib lrcLib = new(string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "LrcLib"))
             {
                 Timeout = Arguments.HttpCacheLifetime.Value,
-            });
+            }, har);
             bool failAllOnFail = true;
             bool fallbackIfBad = true;
 
@@ -1106,26 +1122,20 @@ sealed class App(AppArguments arguments)
         {
             Log.Section($"Synchronizing SoundCloud playlists");
 
-            if (string.IsNullOrEmpty(Arguments.SoundCloudCredentialsPath))
+            if (Arguments.SoundCloudCredentials is null)
             {
-                Log.Warning($"SoundCloud credentials file wasn't specified");
-            }
-            else if (!File.Exists(Arguments.SoundCloudCredentialsPath))
-            {
-                Log.Warning($"Specified SoundCloud credentials file doesn't exists");
+                Log.Warning($"SoundCloud credentials isn't specified");
             }
             else
             {
-                SoundCloudCredentials? credentials = JsonSerializer.Deserialize<SoundCloudCredentials>(File.ReadAllText(Arguments.SoundCloudCredentialsPath)) ?? throw new JsonException();
-
                 List<Change<(Playlist Playlist, Track Track)>> changes = [];
 
                 try
                 {
-                    using SoundCloudClient soundCloudClient = new(credentials, cookies, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "SoundCloud"))
+                    using SoundCloudClient soundCloudClient = new(Arguments.SoundCloudCredentials, soundcloudCookies, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "SoundCloud"))
                     {
                         Timeout = Arguments.HttpCacheLifetime.Value,
-                    });
+                    }, har);
 
                     Log.MinorAction($"Initializing SoundCloud client");
                     await soundCloudClient.Initialize(cancellationToken);
@@ -1169,7 +1179,7 @@ sealed class App(AppArguments arguments)
 
                                     if (tracks.Any(v => v.Id == track.Id))
                                     {
-                                        Log.Warning($"Skipping adding track {track.Title} multiple times");
+                                        if (!Arguments.IgnoreSoundCloudMatchWarnings) Log.Warning($"Skipping adding track {track.Title} multiple times");
                                         continue;
                                     }
                                     tracks.Add(track);
@@ -1298,24 +1308,18 @@ sealed class App(AppArguments arguments)
         {
             Log.Section($"Synchronizing Spotify playlists");
 
-            if (string.IsNullOrEmpty(Arguments.SpotifyCredentialsPath))
+            if (Arguments.SpotifyCredentials is null)
             {
-                Log.Warning($"Spotify credentials file wasn't specified");
-            }
-            else if (!File.Exists(Arguments.SpotifyCredentialsPath))
-            {
-                Log.Warning($"Specified Spotify credentials file doesn't exists");
+                Log.Warning($"Spotify credentials isn't specified");
             }
             else
             {
                 try
                 {
-                    Spotify.SpotifyCredentials? credentials = JsonSerializer.Deserialize<Spotify.SpotifyCredentials>(File.ReadAllText(Arguments.SpotifyCredentialsPath)) ?? throw new JsonException();
-
-                    using Spotify.SpotifyClient client = new(credentials, cookies, Arguments, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "Spotify"))
+                    using Spotify.SpotifyClient client = new(Arguments.SpotifyCredentials, spotifyCookies, Arguments, string.IsNullOrEmpty(Arguments.HttpCachePath) ? NullCache.Default : new FileRequestCache(Path.Combine(Arguments.HttpCachePath, "Spotify"))
                     {
                         Timeout = Arguments.HttpCacheLifetime.Value,
-                    });
+                    }, har);
 
                     Log.MinorAction($"Initializing Spotify client");
                     await client.Initialize(cancellationToken);
@@ -1341,26 +1345,28 @@ sealed class App(AppArguments arguments)
                             continue;
                         }
 
-                        Log.MinorAction($"Generating playlist {playlistContent.Title}");
-
                         List<Spotify.IEntity> tracks = [];
-                        foreach (MusicFile musicFile in playlistContent.Musics)
+
+                        using (ProgressBar progress = new())
                         {
-                            Spotify.IEntity? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, cancellationToken);
-
-                            if (track is null) continue;
-
-                            musicFile.DescriptionMeta.SpotifyId = track.Uri;
-                            musicFile.OpenTags();
-                            musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
-
-                            if (tracks.Any(v => v.Uri == track.Uri))
+                            progress.Report($"Generating playlist {playlistContent.Title}");
+                            foreach (MusicFile musicFile in playlistContent.Musics.WithProgress(progress))
                             {
-                                Log.Warning($"Skipping adding track {track} multiple times");
-                                continue;
-                            }
+                                Spotify.IEntity? track = await SpotifyUtils.MatchTrack(musicFile, library, client, Arguments, har, cancellationToken);
 
-                            tracks.Add(track);
+                                if (track is null) continue;
+
+                                musicFile.DescriptionMeta.SpotifyId = track.Uri;
+                                musicFile.OpenTags();
+                                musicFile.TagsFile.Tag.Description = musicFile.TagsDiff.Modify("Description", musicFile.TagsFile.Tag.Description, musicFile.DescriptionMeta.ToString());
+
+                                if (tracks.Any(v => v.Uri == track.Uri))
+                                {
+                                    if (!Arguments.IgnoreSpotifyMatchWarnings) Log.Warning($"Skipping adding track {track} multiple times");
+                                    continue;
+                                }
+                                tracks.Add(track);
+                            }
                         }
 
                         Spotify.ItemElement? existingSpotifyPlaylist = profileLibrary.Items.ThrowIfNull().FirstOrDefault(v => v.Item.Data.ThrowIfNull().Name == playlistContent.Title);
@@ -1502,7 +1508,7 @@ sealed class App(AppArguments arguments)
 
     #region YouTube
 
-    async Task DownloadPlaylist(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, List<PlaylistVideo> online, Library library, string path, SteppingProgressBar progressBar, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylist(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, List<PlaylistVideo> online, Library library, string path, SteppingProgressBar progressBar, HarLogger? har, CancellationToken cancellationToken = default)
     {
         Channel<PlaylistVideo> channel = Channel.CreateUnbounded<PlaylistVideo>();
 
@@ -1543,19 +1549,19 @@ sealed class App(AppArguments arguments)
 
         for (int i = 0; i < MaxConcurrency; i++)
         {
-            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, youTubeCache, channel, library, path, progressBar, cancellationToken);
+            tasks[i + 1] = DownloadPlaylistJob(youtube, playlist, youTubeCache, channel, library, path, progressBar, har, cancellationToken);
         }
 
         await Task.WhenAll(tasks);
     }
 
-    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, Channel<PlaylistVideo> channel, Library library, string path, SteppingProgressBar progressBar, CancellationToken cancellationToken = default)
+    async Task DownloadPlaylistJob(YoutubeClient youtube, Playlist playlist, YouTubeCache? youTubeCache, Channel<PlaylistVideo> channel, Library library, string path, SteppingProgressBar progressBar, HarLogger? har, CancellationToken cancellationToken = default)
     {
         await foreach (PlaylistVideo video in channel.Reader.ReadAllAsync(cancellationToken))
         {
             if (cancellationToken.IsCancellationRequested) break;
             progressBar.Step();
-            await HandleVideo(youtube, playlist, youTubeCache, video, library, path, cancellationToken);
+            await HandleVideo(youtube, playlist, youTubeCache, video, library, path, har, cancellationToken);
         }
     }
 
@@ -1565,7 +1571,7 @@ sealed class App(AppArguments arguments)
         return SanitizeFilename($"{meta.GetArtistsText()} - {meta.GetTitleText()}");
     }
 
-    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, YouTubeCache? youtubeCache, PlaylistVideo video, Library library, string path, CancellationToken cancellationToken = default)
+    async Task HandleVideo(YoutubeClient youtube, Playlist playlist, YouTubeCache? youtubeCache, PlaylistVideo video, Library library, string path, HarLogger? har, CancellationToken cancellationToken = default)
     {
         MusicFile? musicFile = playlist.Musics.FirstOrDefault(v => v.Id == video.Id.Value);
         if (musicFile is not null)
@@ -1666,7 +1672,7 @@ sealed class App(AppArguments arguments)
 
         if (Arguments.Metadata)
         {
-            await YouTube.FetchMetadata(musicFile, youtube, youtubeCache, cancellationToken);
+            await YouTube.FetchMetadata(musicFile, youtube, youtubeCache, har, cancellationToken);
         }
 
         if (Arguments.SaveIntermediateTags && musicFile.SaveTags(Arguments.DryRun))
